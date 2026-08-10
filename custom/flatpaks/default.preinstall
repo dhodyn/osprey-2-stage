@@ -3,13 +3,10 @@
 # Format: INI file with [Flatpak Preinstall NAME] groups
 # See: https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-preinstall
 
-# Uncomment the apps you want installed on first boot:
+# Apps installed on first boot (after user creation):
 
-;[Flatpak Preinstall org.mozilla.firefox]
-;Branch=stable
+[Flatpak Preinstall com.spotify.Client]
+Branch=stable
 
-;[Flatpak Preinstall org.mozilla.Thunderbird]
-;Branch=stable
-
-;[Flatpak Preinstall org.gnome.Calculator]
-;Branch=stable
+[Flatpak Preinstall org.mozilla.Thunderbird]
+Branch=stable
