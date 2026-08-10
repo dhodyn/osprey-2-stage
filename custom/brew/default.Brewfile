@@ -1,3 +1,6 @@
-# Default Brewfile for finpilot
-# Uncomment packages you want to install, or add your own.
+# Default Brewfile for osprey
 # Users install via: ujust install-default-apps
+
+# CLI tools
+brew "neovim"
+brew "helix"
