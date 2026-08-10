@@ -77,8 +77,11 @@ ujust install-fonts
 ### Validation
 
 - **PR trigger**: `validate-brewfiles.yml` runs on PRs that touch `custom/brew/**`
-- **Local check**: `brew bundle check --file /path/to/Brewfile`
+- **Local check**: `brew bundle check --file /path/to/Brewfile` (checks install state; only useful locally after `brew bundle install`)
+- **CI check**: `validate-brewfiles.yml` verifies each active `brew "..."`, `cask "..."`, and `tap "..."` entry *exists* (`brew info --formula/--cask`, `git ls-remote` on the tap repo) — it does NOT require packages to be installed
 - **List what would install**: `brew bundle list --file /path/to/Brewfile`
+
+> **Upstream note**: upstream finpilot's `validate-brewfiles.yml` used `brew bundle check --file` (an install-state check), so it could only ever pass with a fully commented Brewfile — the template's own "add a package to default.Brewfile" step was blocked by CI. This fork replaced it with an existence check (see the workflow for the implementation). Active `brew`/`cask`/`tap` entries are therefore mergeable.
 
 ## Flatpaks: `custom/flatpaks/*.preinstall`
 
