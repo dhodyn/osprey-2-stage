@@ -1,4 +1,4 @@
-# finpilot
+# osprey
 
 A template for building custom bootc operating system images based on the lessons from [Universal Blue](https://universal-blue.org/) and [Bluefin](https://projectbluefin.io). It is designed to be used manually, but is optimized to be bootstraped by GitHub Copilot. After set up you'll have your own custom Linux.
 
@@ -12,7 +12,7 @@ Instead, you create your own OS repository based on this template, allowing full
 
 ## What Makes this Raptor Different?
 
-Here are the changes from [Base Image Name]. This image is based on [Bluefin/Bazzite/Aurora/etc] and includes these customizations:
+Here are the changes from Fedora Silverblue. This image is based on Fedora Silverblue and includes these customizations:
 
 ### Added Packages (Build-time)
 
@@ -33,7 +33,7 @@ Here are the changes from [Base Image Name]. This image is based on [Bluefin/Baz
 - Desktop environment changes
 - Other notable modifications
 
-_Last updated: [date]_
+_Last updated: 2026-08-10_
 
 > Replace the placeholders above with your actual customizations whenever you add or remove packages, apps, or configuration. This section is what tells users how your image differs from the base.
 
