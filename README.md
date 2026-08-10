@@ -20,18 +20,17 @@ Here are the changes from Fedora Silverblue. This image is based on Fedora Silve
 
 ### Added Applications (Runtime)
 
-- **CLI Tools (Homebrew)**: neovim, helix - [brief explanation]
-- **GUI Apps (Flatpak)**: Spotify, Thunderbird - [brief explanation]
+- **CLI Tools (Homebrew)**: neovim, helix — a modern modal editor and a terminal text editor, installed via `ujust install-default-apps`.
+- **GUI Apps (Flatpak)**: Spotify, Thunderbird — Spotify for music streaming and Thunderbird for email and news, preinstalled on first boot.
 
 ### Removed/Disabled
 
-- List anything removed from base image
+- Nothing removed from the base image yet.
 
 ### Configuration Changes
 
-- Any systemd services enabled/disabled
-- Desktop environment changes
-- Other notable modifications
+- Enabled `podman.socket` for rootless container access
+- Enabled `brew-setup.service` and the `brew-update.timer` / `brew-upgrade.timer` for Homebrew maintenance
 
 _Last updated: 2026-08-10_
 
