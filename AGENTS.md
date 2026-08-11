@@ -16,12 +16,17 @@ links lives in `.agents/skills/README.md`.
   and pushes publish `:stable-testing` images.
 - `stable` is the **production branch** — pushes publish `:stable` images.
 - Promotion is `main` → `stable` via squash PRs opened by
-  `.github/workflows/promote-main-to-stable.yml`, a thin caller of the factory
-  reusable `projectbluefin/actions/.github/workflows/reusable-promote-squash.yml`.
+  `.github/workflows/promote-main-to-stable.yml`. The factory reusable
+  `reusable-promote-squash.yml` hardcodes `--reviewer <owner>/maintainers`,
+  which cannot resolve on personal-account forks (teams are org-only), so this
+  repo implements the squash promotion locally and omits the reviewer request.
   `sync-stable-to-main.yml` (`reusable-sync-branches.yml`) merges any direct
   `stable` hotfixes back into `main`.
 - Decision record: the factory reusable workflow was chosen over the external
-  pull[bot] app (issues #235/#237). Do not add `.github/pull.yml`.
+  pull[bot] app (issues #235/#237). Do not add `.github/pull.yml`. The local
+  promotion workflow is a fork-side delivery-mechanism deviation (approved),
+  not a return to pull[bot]; upstream the reviewer bug in
+  `projectbluefin/actions` (see header comment in the workflow).
 - Never commit directly to `stable`; it receives only promotion PRs.
 
 ## Release Workflow
@@ -138,6 +143,6 @@ Before marking work done:
 - [ ] Updated or created the relevant skill file?
 - [ ] Included that learning in this PR?
 
-**Last Updated**: 2026-08-05
+**Last Updated**: 2026-08-11
 **Template Version**: finpilot (Agent UX Overhaul)
 **Maintainer**: Universal Blue Community

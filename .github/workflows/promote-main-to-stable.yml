@@ -3,13 +3,18 @@ name: Promote main to stable
 
 # Two-branch model: `main` is the testing branch (publishes :stable-testing),
 # `stable` is the production branch (publishes :stable). On every push to
-# `main` the shared factory workflow opens (or refreshes) a squash promotion
-# PR from `main` to `stable`; merging it publishes :stable.
+# `main` this workflow opens (or refreshes) a squash promotion PR from `main`
+# to `stable`; merging it publishes :stable.
 #
-# Reusable logic lives in projectbluefin/actions — this is a thin caller,
-# matching the pattern in projectbluefin/bluefin and projectbluefin/bluefin-lts.
-# pull[bot] was considered and rejected: the factory reusable is auditable,
-# org-maintained, and shared with the other image repos (see issues #235/#237).
+# LOCAL IMPLEMENTATION — why not the factory reusable?
+# The shared reusable-promote-squash.yml hardcodes `--reviewer
+# <owner>/maintainers` on `gh pr create`. GitHub teams are organization-only,
+# so on a personal-account fork that reviewer can never resolve and every
+# promotion PR creation exits 1 right after the PR is created (plus a spurious
+# "promotion conflict" issue). This fork therefore inlines the squash promotion
+# and omits the reviewer request. Upstream tracker: projectbluefin/actions.
+# The two-branch model itself (decision record, issues #235/#237) is unchanged;
+# only the delivery mechanism is local. Do not add .github/pull.yml.
 
 on:
   push:
@@ -23,10 +28,6 @@ permissions:
   issues: write
   actions: read
   statuses: write
-  # The reusable release gate (reusable-release-gate.yml) verifies cosign
-  # signatures on GHCR, so the caller must grant packages: read. A caller
-  # permissions block zeroes unlisted scopes; without this the reusable's
-  # gate job exceeds the caller's grant and the workflow fails at startup.
   packages: read
 
 concurrency:
@@ -35,18 +36,360 @@ concurrency:
 
 jobs:
   promote:
-    name: Promote main to stable
-    uses: projectbluefin/actions/.github/workflows/reusable-promote-squash.yml@370431fd5f222dada9fbc21ae8a7b0387eb2b152 # v1
+    name: Build and maintain squash promotion PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+    outputs:
+      sync_needed: ${{ steps.compare.outputs.sync_needed }}
+      source_sha: ${{ steps.compare.outputs.source_sha }}
+      pr_number: ${{ steps.upsert.outputs.pr_number }}
+      pr_url: ${{ steps.upsert.outputs.pr_url }}
+      promoted: ${{ steps.rebuild.outputs.promoted }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch branches
+        run: git fetch origin stable main
+
+      - name: Compare source and target trees
+        id: compare
+        run: |
+          set -euo pipefail
+
+          TARGET_SHA=$(git rev-parse "origin/stable")
+          SOURCE_SHA=$(git rev-parse "origin/main")
+          TARGET_TREE=$(git rev-parse "origin/stable^{tree}")
+          SOURCE_TREE=$(git rev-parse "origin/main^{tree}")
+
+          if [ "$TARGET_TREE" = "$SOURCE_TREE" ]; then
+            echo "::notice::main and stable are identical — nothing to promote"
+            echo "sync_needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "main differs from stable — promotion needed"
+            echo "sync_needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo "source_sha=${SOURCE_SHA}"
+            echo "target_sha=${TARGET_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild squash promotion branch
+        if: steps.compare.outputs.sync_needed == 'true'
+        id: rebuild
+        run: |
+          set -euo pipefail
+          # Always rebuild from current origin/stable — eliminates staleness and
+          # conflict drift. Force-push ensures the PR always shows a clean
+          # single-commit diff.
+          git checkout -B auto/promote-main-to-stable origin/stable
+          # Build the squash content by checking out main's full tree. This
+          # avoids all merge-conflict scenarios while producing the correct
+          # delta: the commit has stable as parent but main's tree, so merging
+          # it into stable makes stable identical to main.
+          git checkout origin/main -- .
+          git add -A
+          # Restore index-only deletions: files deleted in main but present in
+          # stable must be staged as deletions so the squash commit removes them.
+          git diff --name-only --diff-filter=D origin/stable origin/main \
+            | xargs -r git rm -f --ignore-unmatch -- 2>/dev/null || true
+          git add -A
+          # Guard: if the squash produced no staged changes, the source content
+          # is already subsumed by the target — no PR needed.
+          if git diff --cached --quiet; then
+            echo "::notice::Squash produced no staged changes — source content already in target. No PR needed."
+            git push origin --delete auto/promote-main-to-stable 2>/dev/null || true
+            echo "promoted=false" >> "$GITHUB_OUTPUT"
+          else
+            # Tree-identity check: if the squash content is unchanged from the
+            # existing promotion branch, skip the force-push. A force-push
+            # changes the head SHA and dismisses existing PR approvals even when
+            # the diff is identical. promoted=skipped passes downstream
+            # `!= 'false'` guards so the PR body and gate section still refresh.
+            NEW_TREE=$(git write-tree)
+            EXISTING_TREE=$(git rev-parse "origin/auto/promote-main-to-stable^{tree}" 2>/dev/null || echo "")
+            if [ "$NEW_TREE" = "$EXISTING_TREE" ] && [ -n "$EXISTING_TREE" ]; then
+              echo "::notice::Squash tree unchanged — skipping push to preserve PR approvals"
+              echo "promoted=skipped" >> "$GITHUB_OUTPUT"
+            else
+              git commit -m "chore: promote main to stable"
+              git push --force origin auto/promote-main-to-stable
+              echo "✅ Squash branch rebuilt"
+              echo "promoted=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Collect git log for PR body
+        if: steps.compare.outputs.sync_needed == 'true' && steps.rebuild.outputs.promoted != 'false'
+        id: gitlog
+        run: |
+          set -euo pipefail
+          COUNT=$(git rev-list --count origin/stable..origin/main 2>/dev/null || echo 0)
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+          # Build commits JSON safely — split on tab, never rely on shell JSON escaping
+          COMMITS_JSON=$(git log "origin/stable..origin/main" \
+            --pretty=format:'%H%x09%s' \
+            --max-count=20 \
+            | python3 -c '
+          import sys, json
+          rows = []
+          for line in sys.stdin:
+              sha, _, subject = line.rstrip("\n").partition("\t")
+              rows.append({"sha": sha, "subject": subject})
+          print(json.dumps(rows))
+          ' 2>/dev/null || echo '[]')
+          echo "commits_json=${COMMITS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "compare_url=https://github.com/${{ github.repository }}/compare/stable...main" >> "$GITHUB_OUTPUT"
+
+      - name: Render promotion PR body
+        if: steps.compare.outputs.sync_needed == 'true' && steps.rebuild.outputs.promoted != 'false'
+        id: render
+        env:
+          GH_REPO: ${{ github.repository }}
+          COMMITS_JSON: ${{ steps.gitlog.outputs.commits_json }}
+          COMMIT_COUNT: ${{ steps.gitlog.outputs.count }}
+          COMPARE_URL: ${{ steps.gitlog.outputs.compare_url }}
+          IMAGE_NAME: ${{ github.event.repository.name }}
+          PR_BODY_FILE: ${{ runner.temp }}/promotion-pr-body.md
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y-%m-%d)"
+
+          {
+            echo "## Promotion: main → stable"
+            echo
+            echo "Squash PR promoting \`main\` to \`stable\`. Merging publishes \`ghcr.io/${GH_REPO}:stable\`."
+            echo
+            echo "Commits included: ${COMMIT_COUNT}"
+            echo
+            jq -r --arg repo "${GH_REPO}" \
+              '.[] | "- [`" + .sha[0:7] + "`](https://github.com/" + $repo + "/commit/" + .sha + ") " + .subject' \
+              <<< "${COMMITS_JSON}"
+            echo
+            echo "[Compare main → stable](${COMPARE_URL})"
+            echo
+            echo "<!-- gate-section-start -->"
+            echo "### Release checklist"
+            echo
+            echo "**⏳ Waiting for release gate**"
+            echo
+            echo "| Check | Status | Details |"
+            echo "|---|---|---|"
+            echo "| Digest resolution | ⏳ | pending |"
+            echo "| Cosign signatures | ⏳ | pending |"
+            echo "| E2E | ⏳ | pending |"
+            echo "<!-- gate-section-end -->"
+          } > "${PR_BODY_FILE}"
+
+          echo "pr_title=ci(promote): ${IMAGE_NAME} main → stable ${DATE}" >> "$GITHUB_OUTPUT"
+          echo "pr_body_file=${PR_BODY_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upsert promotion PR
+        if: steps.compare.outputs.sync_needed == 'true' && steps.rebuild.outputs.promoted != 'false'
+        id: upsert
+        env:
+          PR_BODY_FILE: ${{ runner.temp }}/promotion-pr-body.md
+          PR_TITLE: ${{ steps.render.outputs.pr_title }}
+        run: |
+          set -euo pipefail
+
+          PR_NUMBER=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --base stable \
+            --head auto/promote-main-to-stable \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" \
+              --repo "${{ github.repository }}" \
+              --title "${PR_TITLE}" \
+              --body-file "${PR_BODY_FILE}"
+            echo "Updated existing PR #${PR_NUMBER}"
+          else
+            # No --reviewer flag: personal-account forks have no teams, and the
+            # factory reusable's <owner>/maintainers request fails after PR
+            # creation. See header comment.
+            PR_URL=$(gh pr create \
+              --repo "${{ github.repository }}" \
+              --base stable \
+              --head auto/promote-main-to-stable \
+              --title "${PR_TITLE}" \
+              --body-file "${PR_BODY_FILE}")
+            PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+            echo "Created PR #${PR_NUMBER}"
+          fi
+
+          PR_URL=$(gh pr view "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --json url --jq '.url')
+          {
+            echo "pr_number=${PR_NUMBER}"
+            echo "pr_url=${PR_URL}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check do-not-merge label
+        if: steps.upsert.outputs.pr_number != ''
+        id: check-dnm
+        run: |
+          LABELS=$(gh pr view "${{ steps.upsert.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --json labels \
+            --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "do-not-merge"; then
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # GITHUB_TOKEN pushes do not trigger workflow runs, so pr-validation.yml
+      # never fires on the squash branch HEAD. Post validate=success here,
+      # after the push and before auto-merge, so the PR is mergeable in the same
+      # run with no re-trigger required. The squash contains only code already
+      # validated by constituent PR checks.
+      - name: Post validate status on squash branch head
+        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
+        run: |
+          set -euo pipefail
+          SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/auto/promote-main-to-stable" \
+            --jq '.object.sha' 2>/dev/null || echo "")
+          if [[ -z "$SHA" ]]; then
+            echo "Squash branch not found — skipping validate post"
+            exit 0
+          fi
+          EXISTING=$(gh api "repos/${{ github.repository }}/commits/${SHA}/statuses" \
+            --jq '[.[] | select(.context == "validate")] | first | .state // ""' 2>/dev/null || echo "")
+          if [[ "$EXISTING" == "success" || "$EXISTING" == "failure" ]]; then
+            echo "validate already ${EXISTING} on ${SHA} — skipping"
+            exit 0
+          fi
+          gh api "repos/${{ github.repository }}/statuses/${SHA}" \
+            -X POST \
+            --field state=success \
+            --field context=validate \
+            --field description="Validated by promotion workflow (constituent PRs already checked)" \
+            --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "✅ Posted validate=success on ${SHA}"
+
+      - name: Enable auto-merge on promotion PR
+        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
+        run: |
+          set -euo pipefail
+          gh pr merge "${{ steps.upsert.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --auto 2>/dev/null \
+            && echo "✅ Auto-merge enabled on PR #${{ steps.upsert.outputs.pr_number }}" \
+            || echo "⚠️  Auto-merge not available — maintainer merges when checks pass"
+
+      - name: Report do-not-merge label block
+        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'true'
+        run: |
+          echo "::notice::PR #${{ steps.upsert.outputs.pr_number }} has the do-not-merge label; auto-merge skipped."
+
+  gate:
+    name: Release gate checks
+    needs: [promote]
+    if: needs.promote.outputs.sync_needed == 'true' && needs.promote.outputs.promoted != 'false'
+    uses: projectbluefin/actions/.github/workflows/reusable-release-gate.yml@370431fd5f222dada9fbc21ae8a7b0387eb2b152 # v1
     with:
-      variants: >-
-        [{"image":"${{ github.event.repository.name }}"}]
+      repo: ${{ github.repository }}
+      pr_number: ${{ needs.promote.outputs.pr_number }}
+      head_sha: ${{ needs.promote.outputs.source_sha }}
+      registry: ghcr.io/${{ github.repository_owner }}
+      variants: '[{"image":"${{ github.event.repository.name }}"}]'
       cosign_identity_regexp: >-
         ^https://github\.com/${{ github.repository_owner }}/[^/]+/\.github/workflows/
-      registry: ghcr.io/${{ github.repository_owner }}
-      source_branch: main
-      target_branch: stable
-      # The release gate resolves the :testing tag (published by main builds)
-      # and verifies its cosign signature. Enable the OPTIONAL keyless signing
-      # step in build-image.yml for the gate to report release/ready.
+      target_tag: testing
       run_e2e: false
+      e2e_suites: smoke
+      e2e_image: ''
     secrets: inherit
+
+  close-failure-issue:
+    needs: [promote]
+    if: needs.promote.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Close stale failure issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = 'ci: main→stable promotion conflict';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'area/ci,kind/bug',
+              state: 'open',
+            });
+            const open = existing.data.find(i => i.title === title);
+            if (open) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+              core.info(`Closed stale failure issue #${open.number}`);
+            }
+
+  report-failure:
+    needs: [promote]
+    if: always() && needs.promote.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update failure issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const sourceSha = '${{ needs.promote.outputs.source_sha }}' || 'unknown';
+            const prUrl = '${{ needs.promote.outputs.pr_url }}';
+            const title = 'ci: main→stable promotion conflict';
+            const body = `## Promotion Conflict\n\n**Run:** ${runUrl}\n**Source SHA:** \`${sourceSha}\`${prUrl ? `\n**PR:** ${prUrl}` : ''}\n\n_Automatically opened by promote-main-to-stable.yml_`;
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'area/ci,kind/bug',
+              state: 'open',
+            });
+            const dup = existing.data.find(i => i.title === title);
+            if (dup) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: dup.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['area/ci', 'kind/bug', 'priority/p1'],
+              });
+            }
