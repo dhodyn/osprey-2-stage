@@ -23,6 +23,11 @@ permissions:
   issues: write
   actions: read
   statuses: write
+  # The reusable release gate (reusable-release-gate.yml) verifies cosign
+  # signatures on GHCR, so the caller must grant packages: read. A caller
+  # permissions block zeroes unlisted scopes; without this the reusable's
+  # gate job exceeds the caller's grant and the workflow fails at startup.
+  packages: read
 
 concurrency:
   group: promote-main-to-stable

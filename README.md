@@ -31,8 +31,9 @@ Here are the changes from Fedora Silverblue. This image is based on Fedora Silve
 
 - Enabled `podman.socket` for rootless container access
 - Enabled `brew-setup.service` and the `brew-update.timer` / `brew-upgrade.timer` for Homebrew maintenance
+- Enabled keyless OIDC image signing (cosign via Fulcio) on publish builds
 
-_Last updated: 2026-08-10_
+_Last updated: 2026-08-11_
 
 > Replace the placeholders above with your actual customizations whenever you add or remove packages, apps, or configuration. This section is what tells users how your image differs from the base.
 
@@ -71,14 +72,20 @@ Use the `finpilot-packages` and `finpilot-custom` skills, then:
 
 ### Phase 3 — Production
 
-When you are ready for production, use this prompt to harden the setup:
+Phase 3 is complete: keyless image signing is enabled and the two-branch
+promotion flow publishes signed `:stable` images. Verify the signatures:
 
 ```
-Use the `finpilot-maintain` and `finpilot-ci` skills, then:
-1. Enable keyless image signing by uncommenting the step in `.github/workflows/build-image.yml`
-2. Verify the cosign command works: cosign verify --certificate-identity-regexp="https://github.com/USER/REPO/.github/workflows/" --certificate-oidc-issuer="https://token.actions.githubusercontent.com" ghcr.io/USER/REPO:stable
-3. Follow the maintenance schedule in the `finpilot-maintain` skill
+cosign verify \
+  --certificate-identity-regexp="https://github.com/dhodyn/osprey/.github/workflows/" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/dhodyn/osprey:stable
 ```
+
+Test images from `main` publish as `:stable-testing`; verify those with the same
+command against `ghcr.io/dhodyn/osprey:stable-testing`. Then follow the
+maintenance schedule in the `finpilot-maintain` skill (weekly Renovate merges,
+monthly test loop, quarterly cleanup, annual Fedora bump).
 
 ## What's Included
 
@@ -147,7 +154,8 @@ Important: Change `finpilot` to your repository name in these 7 files:
 
 Your first build will start automatically!
 
-Note: Image signing is disabled by default. Your images will build successfully without any signing keys. Once you're ready for production, see "Optional: Enable Image Signing" below.
+Note: Image signing is enabled. Every publish build produces a keyless
+OIDC-signed image; see "Optional: Enable Image Signing" below for verification.
 
 ### 4. Enable Renovate (Required)
 
@@ -239,7 +247,9 @@ sudo systemctl reboot
 
 ## Optional: Enable Image Signing
 
-Image signing is disabled by default to let you start building immediately. However, signing is strongly recommended for production use.
+Image signing is **enabled** in this image, using keyless OIDC signing via
+Cosign and GitHub Actions — no manual key generation, `cosign.key`, or
+`cosign.pub` files are required.
 
 ### Why Sign Images?
 
@@ -250,22 +260,20 @@ Image signing is disabled by default to let you start building immediately. Howe
 
 ### Setup Instructions
 
-This template uses **keyless OIDC signing** via Cosign and GitHub Actions. No manual key generation, `cosign.key`, or `cosign.pub` files are required.
+Signing is already enabled in `.github/workflows/build-image.yml` (the `Sign
+and publish` step, keyless mode). If you disabled it, re-enable by uncommenting
+that step — the `id-token: write` permission is already granted.
 
-1. Edit `.github/workflows/build-image.yml`
-2. Find the "OPTIONAL: Sign and attest" section
-3. Uncomment the `Sign and publish` step (remove the `#` from the beginning of each line in that section)
-4. Commit and push
+Every publish build produces a signed image. The signature is created using
+GitHub's OIDC token via Fulcio.
 
-Your next build will produce a signed image. The signature is created using GitHub's OIDC token via Fulcio.
-
-Users can verify your images with:
+Verify your images with:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp="https://github.com/your-username/your-repo-name/.github/workflows/" \
+  --certificate-identity-regexp="https://github.com/dhodyn/osprey/.github/workflows/" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/your-username/your-repo-name:stable
+  ghcr.io/dhodyn/osprey:stable
 ```
 
 ## Love Your Image? Let's Go to Production
@@ -274,12 +282,12 @@ Ready to take your custom OS to production? Enable these features for enhanced s
 
 ### Production Checklist
 
-- [ ] **Enable Image Signing** (Recommended)
+- [x] **Enable Image Signing** (Recommended)
   - Provides cryptographic verification of your images
   - Prevents tampering and ensures authenticity
   - Uses keyless OIDC signing via GitHub Actions — no keys or secrets required
-  - See "Optional: Enable Image Signing" section above for setup instructions
-  - Status: **Disabled by default** to allow immediate testing
+  - Enabled in `.github/workflows/build-image.yml` (the `Sign and publish` step)
+  - Status: **Enabled** — all publish builds are signed
 
 - [ ] **Enable Image Rechunking** (Recommended)
   - Optimizes bootc image layers for better update performance
@@ -394,11 +402,9 @@ just run-vm-qcow2       # Test in browser-based VM
 
 This template provides security features for production use:
 
-- Optional image signing with keyless OIDC cosign for cryptographic verification
+- Keyless OIDC image signing via cosign for cryptographic verification (enabled)
 - Automated security updates via Renovate
 - Build provenance tracking
-
-These security features are disabled by default to allow immediate testing. When you're ready for production, see the "Love Your Image? Let's Go to Production" section above to enable them.
 
 ## Troubleshooting
 
