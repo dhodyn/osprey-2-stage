@@ -294,10 +294,12 @@ jobs:
           PR_NUMBER="${{ steps.upsert.outputs.pr_number }}"
           # Right after creation the PR's mergeability is still UNKNOWN and
           # GitHub refuses to enable auto-merge; retry for ~40s before giving up.
+          # --squash is required: gh errors out without a merge method when
+          # running non-interactively.
           for _ in $(seq 1 8); do
             if gh pr merge "${PR_NUMBER}" \
               --repo "${{ github.repository }}" \
-              --auto 2>/dev/null; then
+              --auto --squash 2>/dev/null; then
               echo "✅ Auto-merge enabled on PR #${PR_NUMBER}"
               exit 0
             fi

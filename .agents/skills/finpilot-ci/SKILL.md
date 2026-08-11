@@ -64,6 +64,9 @@ description: >-
 - **Auto-merge races with mergeability.** Right after `gh pr create`, the PR's
   mergeability is still `UNKNOWN` and `gh pr merge --auto` fails. Retry the
   enable in a loop (~40s window) before falling back to "maintainer merges".
+  `gh pr merge --auto` also **requires a merge method flag** (`--squash`,
+  `--merge`, or `--rebase`) when running non-interactively — without it the
+  enable fails deterministically with "merge, rebase, or squash required".
 - **Bot-created PRs park PR-triggered runs in `action_required`.** The promotion
   PR is created with the runner token, so `PR Validation` and
   `enforce workflow labels` runs on it are held by the platform approval gate
