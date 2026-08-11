@@ -61,26 +61,31 @@ description: >-
 - **`gh` in `run:` steps needs the token.** Add `GH_TOKEN: ${{ github.token }}`
   at the job level or every `gh` call fails with "To use GitHub CLI in a GitHub
   Actions workflow, set the GH_TOKEN environment variable."
-- **`stable` is protected by a merge queue ruleset.** The promotion workflow
-  enqueues the PR with `enqueuePullRequest` (GraphQL) and the queue runner
-  performs the merge — same pattern as projectbluefin/bluefin
-  (`use_merge_queue: true`). Do NOT switch back to `gh pr merge --auto`:
-  GitHub suppresses workflow runs triggered by `GITHUB_TOKEN` events, so a
-  GITHUB_TOKEN merge to `stable` produces NO `Build and Push Image` run and
-  `:stable` silently goes stale (verified 2026-08-11: merged commit had zero
-  workflow runs). Merge-queue merges are normal push events and fire the build.
-- **Auto-merge/queue-enable races with mergeability.** Right after `gh pr
-  create` the PR's mergeability is `UNKNOWN`; retry the enable/enqueue in a
+- **`stable` is protected by a ruleset; promotion merges via PAT auto-merge.**
+  The promotion workflow enables `gh pr merge --squash --auto` with
+  `GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}` (a PAT). A PAT-performed merge is a
+  normal push and fires the `:stable` build. Do NOT enable auto-merge with the
+  runner token: GitHub suppresses workflow runs triggered by `GITHUB_TOKEN`
+  events, so a GITHUB_TOKEN merge to `stable` produces NO `Build and Push
+  Image` run and `:stable` silently goes stale (verified 2026-08-11: merged
+  commit had zero workflow runs).
+- **No merge queue on personal-account repos.** GitHub's merge queue is
+  org-owned-repo only; the API rejects a `merge_queue` ruleset rule on a
+  user-owned repo with `422 Invalid rule 'merge_queue'` (verified 2026-08-11),
+  so the upstream `enqueuePullRequest` path (projectbluefin/bluefin
+  `use_merge_queue: true`) cannot run here. Do not add a `merge_queue` rule to
+  the `stable` ruleset; PAT auto-merge is the fork-side delivery mechanism.
+- **Auto-merge races with mergeability.** Right after `gh pr
+  create` the PR's mergeability is `UNKNOWN`; retry the enable in a
   loop (~60s). `gh pr merge --auto` also **requires a merge method flag**
-  (`--squash`) when non-interactive. `enqueuePullRequest` is blocked by
-  non-fast-forward/no-merge-queue conditions and fails until `validate` (the
-  posted status) propagates.
+  (`--squash`) when non-interactive. Auto-merge stays blocked until `validate`
+  (the posted status) propagates.
 - **Bot-created PRs park PR-triggered runs in `action_required`.** The promotion
   PR is created with the runner token, so `PR Validation` and
   `enforce workflow labels` runs on it are held by the platform approval gate
   (0 jobs, `conclusion: action_required`) until a maintainer approves. Harmless
   here: the promotion posts the synthetic `validate=success` status, which
-  satisfies the merge queue's required check. Do NOT switch these to
+  satisfies the ruleset's required check. Do NOT switch these to
   `pull_request_target` to "fix" it — that changes the security model.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
