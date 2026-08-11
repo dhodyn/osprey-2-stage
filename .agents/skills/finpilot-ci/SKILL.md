@@ -34,7 +34,7 @@ description: >-
 | File                          | Trigger                           | Purpose                                                       |
 | ----------------------------- | --------------------------------- | ------------------------------------------------------------- |
 | `build-image.yml`             | push main + stable, manual        | Publish `:stable-testing` (main) or `:stable` (stable)        |
-| `promote-main-to-stable.yml`  | push main, manual                 | Squash promotion PR `main` → `stable` via factory reusable    |
+| `promote-main-to-stable.yml`  | push main, manual                 | Squash promotion PR `main` → `stable` (local impl)            |
 | `sync-stable-to-main.yml`     | push stable                       | Merge direct `stable` hotfixes back to `main` (usually no-op) |
 | `pr-validation.yml`           | PR → main                         | shellcheck + hadolint + pre-commit via `validate-pr`          |
 | `renovate.yml`                | schedule 6h, push renovate config | Self-hosted Renovate runner                                   |
@@ -49,9 +49,15 @@ description: >-
 - `main` is the testing branch and publishes `:stable-testing` (plus bare
   `:testing`, which the promotion release gate resolves).
 - `stable` is the production branch and publishes `:stable`.
-- Promotion uses `reusable-promote-squash.yml` and `reusable-sync-branches.yml`
-  from `projectbluefin/actions` — the factory contract. pull[bot] /
+- Promotion uses a **local** squash workflow (`promote-main-to-stable.yml`)
+  plus `reusable-sync-branches.yml` from `projectbluefin/actions`. pull[bot] /
   `.github/pull.yml` was rejected (issues #235/#237); do not add it.
+- **Personal-account forks must not use `reusable-promote-squash.yml`.** It
+  hardcodes `--reviewer <owner>/maintainers`; teams are org-only, so
+  `requestReviewsByLogin` fails right after the PR is created and every
+  promotion run exits 1 (plus a spurious "promotion conflict" issue). The
+  local workflow drops the reviewer and calls the factory release gate
+  (`reusable-release-gate.yml`) directly. Fix upstream before switching back.
 - The `Determine image tag` step sets `TAG_STREAM=testing` off the production
   branch; `Finalize branch tags` renames `testing*` tags to `stable-testing-*`
   so they never collide with production `stable-daily*` aliases.

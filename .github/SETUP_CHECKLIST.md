@@ -25,8 +25,16 @@
 This template uses a **two-branch model**: `main` publishes `:stable-testing`
 candidate images, and `stable` publishes `:stable` production images.
 Promotion is a squash PR from `main` to `stable` opened automatically by
-`.github/workflows/promote-main-to-stable.yml` (factory reusable workflow —
-no external GitHub App required).
+`.github/workflows/promote-main-to-stable.yml` (local implementation — no
+external GitHub App required).
+
+> **Personal-account forks:** the factory `reusable-promote-squash.yml` is NOT
+> used here because it hardcodes `--reviewer <owner>/maintainers` (teams are
+> org-only). The local workflow drops the reviewer and calls the factory
+> release gate directly.
+
+- [ ] Enable **Settings → Actions → General → "Allow GitHub Actions to create
+      and approve pull requests"** — required for Actions to open the promotion PR
 
 Create `stable` as an exact copy of `main`, then return to `main`:
 
