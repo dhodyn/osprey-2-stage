@@ -22,6 +22,12 @@ links lives in `.agents/skills/README.md`.
   repo implements the squash promotion locally and omits the reviewer request.
   `sync-stable-to-main.yml` (`reusable-sync-branches.yml`) merges any direct
   `stable` hotfixes back into `main`.
+- `stable` is protected by a **merge queue ruleset** (upstream pattern). The
+  promotion workflow enqueues the PR (`enqueuePullRequest`); the queue runner
+  performs the merge, and that push DOES trigger the `:stable` build. Do NOT
+  switch back to `gh pr merge --auto` with the runner token — GitHub suppresses
+  workflow runs triggered by `GITHUB_TOKEN` events, so `:stable` silently goes
+  stale (verified 2026-08-11).
 - Decision record: the factory reusable workflow was chosen over the external
   pull[bot] app (issues #235/#237). Do not add `.github/pull.yml`. The local
   promotion workflow is a fork-side delivery-mechanism deviation (approved),
@@ -34,8 +40,11 @@ links lives in `.agents/skills/README.md`.
 1. Open changes against `main`.
 2. Merge only after required validation and image build checks pass.
 3. Test `ghcr.io/OWNER/IMAGE:stable-testing`.
-4. Review the auto-opened promotion PR from `main` to `stable`.
-5. Merge the promotion to publish `ghcr.io/OWNER/IMAGE:stable`.
+4. Review the auto-opened promotion PR from `main` to `stable`
+   (`release/ready` label = cosign gate passed).
+5. The promotion workflow enqueues the PR in the merge queue; the queue
+   merges it and publishes `ghcr.io/OWNER/IMAGE:stable`. Add the
+   `do-not-merge` label to the promotion PR to block the queue while testing.
 
 | Branch   | Image tag         | Audience                       |
 | -------- | ----------------- | ------------------------------ |

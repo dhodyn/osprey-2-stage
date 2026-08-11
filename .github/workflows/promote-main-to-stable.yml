@@ -4,7 +4,10 @@ name: Promote main to stable
 # Two-branch model: `main` is the testing branch (publishes :stable-testing),
 # `stable` is the production branch (publishes :stable). On every push to
 # `main` this workflow opens (or refreshes) a squash promotion PR from `main`
-# to `stable`; merging it publishes :stable.
+# to `stable`; `stable` is protected by a merge queue ruleset, so the workflow
+# enqueues the PR and the queue runner performs the merge. The queue merge is a
+# regular push event and DOES trigger the :stable build — unlike a
+# GITHUB_TOKEN `gh pr merge --auto`, whose events GitHub suppresses.
 #
 # LOCAL IMPLEMENTATION — why not the factory reusable?
 # The shared reusable-promote-squash.yml hardcodes `--reviewer
@@ -287,30 +290,35 @@ jobs:
             --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "✅ Posted validate=success on ${SHA}"
 
-      - name: Enable auto-merge on promotion PR
+      - name: Enqueue promotion PR in merge queue
         if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.upsert.outputs.pr_number }}
         run: |
           set -euo pipefail
-          PR_NUMBER="${{ steps.upsert.outputs.pr_number }}"
-          # Right after creation the PR's mergeability is still UNKNOWN and
-          # GitHub refuses to enable auto-merge; retry for ~40s before giving up.
-          # --squash is required: gh errors out without a merge method when
-          # running non-interactively.
-          for _ in $(seq 1 8); do
-            if gh pr merge "${PR_NUMBER}" \
+          # stable is protected by a merge queue ruleset. enablePullRequestAutoMerge
+          # is blocked by queue rulesets, so use enqueuePullRequest (upstream
+          # pattern). The queue runner performs the merge, which DOES trigger
+          # push workflows on stable — GITHUB_TOKEN auto-merge would not.
+          for _ in $(seq 1 6); do
+            NODE_ID=$(gh pr view "$PR_NUMBER" \
               --repo "${{ github.repository }}" \
-              --auto --squash 2>/dev/null; then
-              echo "✅ Auto-merge enabled on PR #${PR_NUMBER}"
+              --json id --jq '.id')
+            if gh api graphql \
+              -f query='mutation($id:ID!){enqueuePullRequest(input:{pullRequestId:$id}){mergeQueueEntry{id}}}' \
+              -f id="$NODE_ID" >/dev/null 2>&1; then
+              echo "✅ PR #${PR_NUMBER} enqueued in merge queue"
               exit 0
             fi
-            sleep 5
+            sleep 10
           done
-          echo "⚠️  Auto-merge not available — maintainer merges when checks pass"
+          echo "⚠️  Could not enqueue PR #${PR_NUMBER} — may already be queued, or checks not yet met"
 
       - name: Report do-not-merge label block
         if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'true'
         run: |
-          echo "::notice::PR #${{ steps.upsert.outputs.pr_number }} has the do-not-merge label; auto-merge skipped."
+          echo "::notice::PR #${{ steps.upsert.outputs.pr_number }} has the do-not-merge label; merge queue enrollment skipped."
 
   gate:
     name: Release gate checks
