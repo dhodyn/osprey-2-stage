@@ -96,7 +96,7 @@ monthly test loop, quarterly cleanup, annual Fedora bump).
 - Automatic cleanup of old images (90+ days) to keep it tidy
 - Pull request workflow - test changes before merging to main
   - PRs build and validate before merge
-  - `main` branch builds `:stable` images
+  - `main` branch builds `:stable-testing` images; `stable` builds `:stable`
 - Validates your files on pull requests so you never break a build:
   - Brewfile, Justfile, ShellCheck, Renovate config, and it'll even check to make sure the flatpak you add exists on FlatHub
 - Production Grade Features
@@ -234,7 +234,7 @@ All changes should be made via pull requests:
    - Brewfile, Flatpak, Justfile, and shellcheck validation
    - Test image build
 3. Once checks pass, merge the PR
-4. Merging triggers publishes a `:stable` image
+4. Merging to `main` publishes a `:stable-testing` image; merging the auto-opened promotion PR to `stable` publishes `:stable`
 
 ### 8. Deploy Your Image
 
