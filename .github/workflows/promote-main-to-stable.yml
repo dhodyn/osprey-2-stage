@@ -291,11 +291,21 @@ jobs:
         if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
         run: |
           set -euo pipefail
-          gh pr merge "${{ steps.upsert.outputs.pr_number }}" \
-            --repo "${{ github.repository }}" \
-            --auto 2>/dev/null \
-            && echo "✅ Auto-merge enabled on PR #${{ steps.upsert.outputs.pr_number }}" \
-            || echo "⚠️  Auto-merge not available — maintainer merges when checks pass"
+          PR_NUMBER="${{ steps.upsert.outputs.pr_number }}"
+          # Right after creation the PR's mergeability is still UNKNOWN and
+          # GitHub refuses to enable auto-merge; retry for ~40s before giving up.
+          # --squash is required: gh errors out without a merge method when
+          # running non-interactively.
+          for _ in $(seq 1 8); do
+            if gh pr merge "${PR_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --auto --squash 2>/dev/null; then
+              echo "✅ Auto-merge enabled on PR #${PR_NUMBER}"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "⚠️  Auto-merge not available — maintainer merges when checks pass"
 
       - name: Report do-not-merge label block
         if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'true'
@@ -333,14 +343,14 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const title = 'ci: main→stable promotion conflict';
+            const titles = ['ci: main→stable promotion conflict', 'ci: testing→main promotion conflict'];
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
               labels: 'area/ci,kind/bug',
               state: 'open',
             });
-            const open = existing.data.find(i => i.title === title);
+            const open = existing.data.find(i => titles.includes(i.title));
             if (open) {
               await github.rest.issues.update({
                 owner: context.repo.owner,
