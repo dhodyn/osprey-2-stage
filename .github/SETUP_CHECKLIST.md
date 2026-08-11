@@ -109,10 +109,9 @@ sudo systemctl reboot
 
 This template uses keyless OIDC signing — no keys or secrets are required.
 
-- [ ] Edit `.github/workflows/build-image.yml`
-- [ ] Find the "OPTIONAL: Sign and attest" section
-- [ ] Uncomment the `Sign and publish` step
-- [ ] Commit and push (via PR to `main`)
+- [x] Uncomment the `Sign and publish` step in `.github/workflows/build-image.yml`
+- [x] Confirm `id-token: write` permission is granted in the build job
+- [x] Verify with `cosign verify` (see README "Optional: Enable Image Signing")
 
 **Agent skill:** `finpilot-templates` (signing setup)
 

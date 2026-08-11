@@ -66,6 +66,7 @@ description: >-
 | PR validation fails: Flatpak               | Invalid app ID                                     | Verify app ID exists on https://flathub.org/                              |
 | PR validation fails: justfile              | Invalid just syntax                                | Run `just --list` locally to test, fix syntax                             |
 | CI build fails: workflow permissions       | Missing `id-token: write` or `packages: write`     | Verify `.github/workflows/build-image.yml` has correct permissions        |
+| CI build fails: `startup_failure` on reusable workflow call | Caller `permissions:` block is not a superset of the called workflow's job permissions. Explicit caller blocks zero unlisted scopes (e.g. the promotion gate's `packages: read`) | Add the missing scope to the caller's `permissions:` block. GitHub validates callee job permissions against the caller at startup — before any job runs and with no log to read |
 | CI build fails: token health               | `RENOVATE_TOKEN` or `GITHUB_TOKEN` invalid/expired | Check token expiry, verify scopes, regenerate if needed                   |
 | CI build fails: signing misconfig          | Signing step uncommented but OIDC not configured   | Comment out signing step OR verify OIDC trust in repo settings            |
 | CI build fails: composite action not found | Wrong commit SHA or repo name in `uses:`           | Verify `projectbluefin/actions` SHA, check network access                 |

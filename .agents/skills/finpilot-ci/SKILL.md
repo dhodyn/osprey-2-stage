@@ -57,6 +57,13 @@ description: >-
   so they never collide with production `stable-daily*` aliases.
 - The release gate verifies cosign signatures on `:testing`; keyless signing
   (optional step in `build-image.yml`) must be enabled for `release/ready`.
+- **Caller permissions are the ceiling.** Any workflow that calls a reusable
+  workflow must grant a `permissions:` block that is a superset of every job
+  permission the callee declares — an explicit caller block zeroes unlisted
+  scopes. The promotion caller needs `packages: read` because the reusable
+  release gate reads GHCR; without it GitHub rejects the run with
+  `startup_failure` before any job starts (no log to diagnose). actionlint does
+  not model this check — keep callee scopes in sync manually.
 
 ## Composite Action Pins
 
