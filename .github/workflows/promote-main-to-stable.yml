@@ -49,6 +49,8 @@ jobs:
       pr_number: ${{ steps.upsert.outputs.pr_number }}
       pr_url: ${{ steps.upsert.outputs.pr_url }}
       promoted: ${{ steps.rebuild.outputs.promoted }}
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
