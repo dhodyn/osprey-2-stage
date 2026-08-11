@@ -22,11 +22,21 @@ links lives in `.agents/skills/README.md`.
   repo implements the squash promotion locally and omits the reviewer request.
   `sync-stable-to-main.yml` (`reusable-sync-branches.yml`) merges any direct
   `stable` hotfixes back into `main`.
-- Decision record: the factory reusable workflow was chosen over the external
-  pull[bot] app (issues #235/#237). Do not add `.github/pull.yml`. The local
-  promotion workflow is a fork-side delivery-mechanism deviation (approved),
-  not a return to pull[bot]; upstream the reviewer bug in
-  `projectbluefin/actions` (see header comment in the workflow).
+- `stable` is protected by a **ruleset** (`stable — release protection`,
+  ruleset id 20697458: `pull_request` squash-only, required status check
+  `validate`, `non_fast_forward`, `deletion`). The promotion workflow enables
+  auto-merge on the PR with a **PAT** (`PROMOTE_TOKEN` secret); a PAT-performed
+  merge is a normal push and DOES trigger the `:stable` build. Do NOT enable
+  auto-merge with the runner token — GitHub suppresses workflow runs triggered
+  by `GITHUB_TOKEN` events, so `:stable` silently goes stale (verified
+  2026-08-11).
+- **No merge queue on this repo.** GitHub's merge queue is org-owned-repo
+  only; on a personal-account repo the API rejects a `merge_queue` ruleset
+  rule with `422 Invalid rule 'merge_queue'` (verified 2026-08-11), so the
+  upstream `enqueuePullRequest` path cannot run here. PAT auto-merge is the
+  fork-side delivery-mechanism deviation (approved) — not a return to
+  pull[bot]; upstream the reviewer bug in `projectbluefin/actions` (see header
+  comment in the workflow). Do not add `.github/pull.yml`.
 - Never commit directly to `stable`; it receives only promotion PRs.
 
 ## Release Workflow
@@ -34,8 +44,11 @@ links lives in `.agents/skills/README.md`.
 1. Open changes against `main`.
 2. Merge only after required validation and image build checks pass.
 3. Test `ghcr.io/OWNER/IMAGE:stable-testing`.
-4. Review the auto-opened promotion PR from `main` to `stable`.
-5. Merge the promotion to publish `ghcr.io/OWNER/IMAGE:stable`.
+4. Review the auto-opened promotion PR from `main` to `stable`
+   (`release/ready` label = cosign gate passed).
+5. The promotion workflow auto-merges the PR with a PAT and publishes
+   `ghcr.io/OWNER/IMAGE:stable`. Add the `do-not-merge` label to the promotion
+   PR to block auto-merge while testing.
 
 | Branch   | Image tag         | Audience                       |
 | -------- | ----------------- | ------------------------------ |
