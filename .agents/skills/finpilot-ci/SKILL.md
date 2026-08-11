@@ -58,6 +58,25 @@ description: >-
   promotion run exits 1 (plus a spurious "promotion conflict" issue). The
   local workflow drops the reviewer and calls the factory release gate
   (`reusable-release-gate.yml`) directly. Fix upstream before switching back.
+- **`gh` in `run:` steps needs the token.** Add `GH_TOKEN: ${{ github.token }}`
+  at the job level or every `gh` call fails with "To use GitHub CLI in a GitHub
+  Actions workflow, set the GH_TOKEN environment variable."
+- **Auto-merge races with mergeability.** Right after `gh pr create`, the PR's
+  mergeability is still `UNKNOWN` and `gh pr merge --auto` fails. Retry the
+  enable in a loop (~40s window) before falling back to "maintainer merges".
+  `gh pr merge --auto` also **requires a merge method flag** (`--squash`,
+  `--merge`, or `--rebase`) when running non-interactively — without it the
+  enable fails deterministically with "merge, rebase, or squash required".
+- **Bot-created PRs park PR-triggered runs in `action_required`.** The promotion
+  PR is created with the runner token, so `PR Validation` and
+  `enforce workflow labels` runs on it are held by the platform approval gate
+  (0 jobs, `conclusion: action_required`) until a maintainer approves. Harmless
+  here: the promotion posts the synthetic `validate=success` status and `stable`
+  has no required checks. Do NOT switch these to `pull_request_target` to "fix"
+  it — that changes the security model.
+- The conflict-issue auto-close must match **both** historical titles:
+  `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
+  (the factory-reusable-era title).
 - The `Determine image tag` step sets `TAG_STREAM=testing` off the production
   branch; `Finalize branch tags` renames `testing*` tags to `stable-testing-*`
   so they never collide with production `stable-daily*` aliases.
