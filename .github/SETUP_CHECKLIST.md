@@ -70,8 +70,12 @@ git push origin main
   - Enable "Require status checks to pass before merging"
   - Add `validate` as a required status check
   - Enable "Require branches to be up to date before merging"
-- [ ] Configure branch protection for `stable`: require a pull request before
-      merging so only promotion PRs land there
+- [ ] Configure `stable` with a **merge queue ruleset** so the promotion queue
+      performs the merge (Settings → Rules → Rulesets). Ruleset on
+      `refs/heads/stable`: "Pull request" (squash only), "Required status
+      checks" = `validate`, "Require merge queue". The queue merge is a normal
+      push, so it triggers the `:stable` build — a `GITHUB_TOKEN` auto-merge
+      would not (GitHub suppresses its events).
 - [ ] Renovate will create a PR to pin your GitHub Actions to SHAs
 
 Renovate targets `main`; approved changes reach `stable` through the promotion flow.
