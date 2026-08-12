@@ -148,7 +148,7 @@ digest-only PRs. If Renovate stops creating PRs, run the Renovate section of
 ### Weekly
 
 - Review and merge Renovate PRs
-- Check that `validate` checks are passing on `main`
+- Check that `validate` + `build` checks are passing on `main`
 
 ### Monthly
 
@@ -194,6 +194,6 @@ digest-only PRs. If Renovate stops creating PRs, run the Renovate section of
 - [ ] Are all Renovate PRs merged or under active review?
 - [ ] Is the README raptor section updated for the latest changes?
 - [ ] Was `just build` run locally before the last PR?
-- [ ] Are all pushes to `main` via PR with passing `validate` check?
+- [ ] Are all pushes to `main` via PR with passing `validate` + `build` checks?
 - [ ] Is image signing enabled (or on the roadmap for production)?
 - [ ] Is `RENOVATE_TOKEN` valid and the Renovate workflow running?
