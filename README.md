@@ -72,8 +72,10 @@ Use the `finpilot-packages` and `finpilot-custom` skills, then:
 
 ### Phase 3 — Production
 
-Phase 3 is complete: keyless image signing is enabled and the two-branch
-promotion flow publishes signed `:stable` images. Verify the signatures:
+Phase 3 is complete: keyless image signing is enabled and the **single-branch
+model** publishes signed `:stable` images. Merging a PR to `main` publishes
+`:stable` (with the required `validate` + `build` checks gating the merge).
+Verify the signatures:
 
 ```
 cosign verify \
@@ -82,10 +84,8 @@ cosign verify \
   ghcr.io/dhodyn/osprey:stable
 ```
 
-Test images from `main` publish as `:stable-testing`; verify those with the same
-command against `ghcr.io/dhodyn/osprey:stable-testing`. Then follow the
-maintenance schedule in the `finpilot-maintain` skill (weekly Renovate merges,
-monthly test loop, quarterly cleanup, annual Fedora bump).
+Follow the maintenance schedule in the `finpilot-maintain` skill (weekly
+Renovate merges, monthly test loop, quarterly cleanup, annual Fedora bump).
 
 ## What's Included
 
@@ -95,8 +95,8 @@ monthly test loop, quarterly cleanup, annual Fedora bump).
 - Self-hosted Renovate for automated dependency updates
 - Automatic cleanup of old images (90+ days) to keep it tidy
 - Pull request workflow - test changes before merging to main
-  - PRs build and validate before merge
-  - `main` branch builds `:stable-testing` images; `stable` builds `:stable`
+  - PRs build and validate before merge (`validate` + `build` checks)
+  - Merging to `main` publishes `:stable` directly (fast cache-reuse build)
 - Validates your files on pull requests so you never break a build:
   - Brewfile, Justfile, ShellCheck, Renovate config, and it'll even check to make sure the flatpak you add exists on FlatHub
 - Production Grade Features
@@ -233,8 +233,8 @@ All changes should be made via pull requests:
    - Build validation
    - Brewfile, Flatpak, Justfile, and shellcheck validation
    - Test image build
-3. Once checks pass, merge the PR
-4. Merging to `main` publishes a `:stable-testing` image; merging the auto-opened promotion PR to `stable` publishes `:stable`
+3. Once checks pass (`validate` + `build`), merge the PR
+4. Merging to `main` publishes a signed `:stable` image
 
 ### 8. Deploy Your Image
 
