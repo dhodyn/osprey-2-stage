@@ -71,6 +71,7 @@ description: >-
 | CI build fails: signing misconfig          | Signing step uncommented but OIDC not configured   | Comment out signing step OR verify OIDC trust in repo settings            |
 | CI build fails: composite action not found | Wrong commit SHA or repo name in `uses:`           | Verify `projectbluefin/actions` SHA, check network access                 |
 | CI build succeeds but image not published  | Wrong `IMAGE_NAME` or `IMAGE_VENDOR`               | Check `Containerfile` ARGs, verify `clean.yml` package name matches       |
+| CI build fails: `Push to GHCR` / Preflight | GHCR secondary rate limit and/or GitHub API incident | Check https://www.githubstatus.com for an incident; back off 15-30 min with no GHCR traffic, then rerun. Main+stable builds pushing a full image near-simultaneously trip the secondary rate limit (`403 permission_denied ... secondary rate limit`); retry storms keep it warm. During an incident `podman login` in Preflight also fails — do NOT keep rerunning until status is green (verified 2026-08-11). |
 
 ## Runtime Issues
 
