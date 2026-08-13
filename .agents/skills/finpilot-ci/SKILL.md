@@ -51,6 +51,11 @@ description: >-
   forks are blocked by the guard step, can safely write both the registry layer
   cache (`REGISTRY_CACHE_WRITE: "1"`) and the DNF cache. The post-merge `main`
   build reuses that cache → fast download/assemble/sign/push, no recompilation.
+- **Branch protection required checks use JOB names as contexts.** `main`
+  requires `["validate", "Build and push image"]` — the build job's name, not
+  `build`. A context that doesn't match any check run (e.g. `build`) leaves the
+  PR `mergeStateStatus: BLOCKED` despite every check passing. Verify with
+  `gh pr view N --json mergeStateStatus` before opening a support ticket.
 - **Fork guard:** `Block fork PRs` runs first in `build-image.yml` and exits 1
   on any PR whose `head.repo.full_name != github.repository`. Public personal
   repos cannot disable forking, so this is the only defense against fork PRs
