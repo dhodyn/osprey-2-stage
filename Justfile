@@ -156,20 +156,20 @@ build $target_image=IMAGE_NAME $tag=DEFAULT_TAG:
     LABELS+=("--label" "io.artifacthub.package.deprecated=false")
     LABELS+=("--label" "containers.bootc=1")
 
-    # Registry layer cache - reuse unchanged layers from GHCR so PR builds and
-    # post-merge `main` builds skip recompiling. CI (build-image.yml) sets
-    # REGISTRY_CACHE_WRITE=1 for BOTH PRs and `main` pushes: the PR build
-    # writes the cache and the post-merge build reads it back before publishing
-    # :stable. Local builds (REGISTRY_CACHE_WRITE unset) read the cache but
-    # never write it.
+    # Registry layer cache - reused only in CI. build-image.yml sets
+    # REGISTRY_CACHE_WRITE=1 for BOTH PR builds and `main` pushes: the PR
+    # build writes the layer cache to GHCR and the post-merge build reads it
+    # back before publishing :stable. Local builds leave it unset and build
+    # purely from the local podman cache - they never read from or write to
+    # GHCR.
     # Note: podman cache refs must be a bare repository (no :tag/:digest);
     # the cache is stored as digest-tagged manifests, so no `latest` tag is
     # expected on the repo.
     CACHE_ARGS=()
     cache_ref="ghcr.io/${IMAGE_VENDOR:-${REPO_ORG}}/${target_image}"
-    if skopeo list-tags "docker://${cache_ref}" >/dev/null 2>&1; then
-        CACHE_ARGS+=("--cache-from" "${cache_ref}")
-        if [[ "${REGISTRY_CACHE_WRITE:-0}" == "1" ]]; then
+    if [[ "${REGISTRY_CACHE_WRITE:-0}" == "1" ]]; then
+        if skopeo list-tags "docker://${cache_ref}" >/dev/null 2>&1; then
+            CACHE_ARGS+=("--cache-from" "${cache_ref}")
             CACHE_ARGS+=("--cache-to" "${cache_ref}")
         fi
     fi
