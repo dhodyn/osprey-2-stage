@@ -56,6 +56,12 @@ description: >-
   `build`. A context that doesn't match any check run (e.g. `build`) leaves the
   PR `mergeStateStatus: BLOCKED` despite every check passing. Verify with
   `gh pr view N --json mergeStateStatus` before opening a support ticket.
+- **No `paths-ignore` on `build-image.yml` — and don't add one.** A skipped
+  required workflow never reports its check, so docs-only PRs land in
+  `mergeStateStatus: BLOCKED` with no failing check. Every PR builds (cheap:
+  ~5 min with cache); that is the fail-closed posture for `main` being
+  production. Same trap applies to the `*validate*.yml` glob that used to be
+  ignored.
 - **Fork guard:** `Block fork PRs` runs first in `build-image.yml` and exits 1
   on any PR whose `head.repo.full_name != github.repository`. Public personal
   repos cannot disable forking, so this is the only defense against fork PRs
