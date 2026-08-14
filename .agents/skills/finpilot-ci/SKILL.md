@@ -52,9 +52,11 @@ description: >-
   cache (`REGISTRY_CACHE_WRITE: "1"`) and the DNF cache. The post-merge `main`
   build reuses that cache → fast download/assemble/sign/push, no recompilation.
 - **Branch protection required checks use JOB names as contexts.** `main`
-  requires `["validate", "Build and push image"]` — the build job's name, not
-  `build`. A context that doesn't match any check run (e.g. `build`) leaves the
-  PR `mergeStateStatus: BLOCKED` despite every check passing. Verify with
+  requires `["validate", "build"]`, matching the `validate` job in
+  `pr-validation.yml` and the `build` job in `build-image.yml` (job names, not
+  workflow names — `build-image.yml` would report `build-image` if the job were
+  unnamed). A context that matches no check run leaves the PR
+  `mergeStateStatus: BLOCKED` despite every check passing. Verify with
   `gh pr view N --json mergeStateStatus` before opening a support ticket.
 - **No `paths-ignore` on `build-image.yml` — and don't add one.** A skipped
   required workflow never reports its check, so docs-only PRs land in

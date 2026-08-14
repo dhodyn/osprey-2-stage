@@ -10,9 +10,9 @@ name: Build and Push Image
 # Fork PRs are rejected by the guard step below: main is production and there
 #   is no testing stream to absorb unverified forks, so they would only poison
 #   the shared cache.
-# No paths-ignore: `main` branch protection requires the "Build and push image"
-#   check, and a skipped workflow never reports it, leaving PRs merge-blocked
-#   even when all reported checks pass. Every PR builds (cheap via cache).
+# No paths-ignore: `main` branch protection requires the `build` check, and a
+#   skipped workflow never reports it, leaving PRs merge-blocked even when all
+#   reported checks pass. Every PR builds (cheap via cache).
 on:
   push:
     branches:
@@ -50,7 +50,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build and push image
+    name: build
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
