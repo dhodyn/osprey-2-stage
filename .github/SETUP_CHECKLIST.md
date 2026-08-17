@@ -20,34 +20,45 @@
 - [ ] Settings → Actions → General → Enable workflows
 - [ ] Set "Read and write permissions"
 
-### 3. Configure Testing and Production Branches
+### 3. Configure the Single-Branch Model
 
-This template uses a **two-branch model**: `main` publishes `:stable-testing`
-candidate images, and `stable` publishes `:stable` production images.
-Promotion is a squash PR from `main` to `stable` opened automatically by
-`.github/workflows/promote-main-to-stable.yml` (local implementation — no
-external GitHub App required).
-
-> **Personal-account forks:** the factory `reusable-promote-squash.yml` is NOT
-> used here because it hardcodes `--reviewer <owner>/maintainers` (teams are
-> org-only). The local workflow drops the reviewer and calls the factory
-> release gate directly.
+This template uses a **single-branch model**: `main` IS production. Every
+change lands via a PR to `main`; merging publishes `:stable` (with the
+`stable-daily-*` and version tags). There is no `stable` branch, no promotion
+PR, and no `PROMOTE_TOKEN`.
 
 - [ ] Enable **Settings → Actions → General → "Allow GitHub Actions to create
-      and approve pull requests"** — required for Actions to open the promotion PR
+      and approve pull requests"** — required for Renovate auto-merge
 
-Create `stable` as an exact copy of `main`, then return to `main`:
+- [ ] Configure branch protection for `main`:
+  - Settings → Branches → Add rule
+  - Set **Branch name pattern** to `main`
+  - Enable **"Require a pull request before merging"**
+  - Enable **"Require status checks to pass before merging"**
+  - Add **`validate`** and **`build`** as required status checks
+  - Enable "Require branches to be up to date before merging" (optional)
+- [ ] Merge button (Settings → General → Pull requests): allow **merge commits,
+      rebase, and squash** — merge method is context-driven per PR
+- [ ] Keep **"Allow auto-merge"** and **"Allow GitHub Actions to create and
+      approve pull requests"** enabled (Renovate needs both)
+- [ ] Fork PRs are blocked by the guard step in `build-image.yml` — public
+      personal repos cannot disable forking, so the guard fails the `build`
+      check on fork PRs (they would write to the shared layer/DNF cache with
+      an untrusted tree)
+
+**Migrating an existing two-branch fork** (had `stable` + promotion): after
+merging this single-branch change, tear down the old machinery last, one step
+at a time:
 
 ```bash
-git switch main
-git switch -c stable
-git push --set-upstream origin stable
-git switch main
+gh api -X DELETE repos/OWNER/REPO/git/refs/heads/stable
+gh api -X DELETE repos/OWNER/REPO/git/refs/heads/auto/promote-main-to-stable
+gh api -X DELETE repos/OWNER/REPO/rulesets/20697458        # stable release protection
+gh secret delete PROMOTE_TOKEN
 ```
 
-- [ ] Never commit directly to `stable`; it receives only promotion PRs
-- [ ] Enable keyless signing (see "Enable Signing" below) so the promotion
-      release gate can verify image signatures and report `release/ready`
+Also delete stale `:testing`, `:stable-testing`, and `stable-testing-*` tags
+from the GHCR package.
 
 ### 4. First Push
 
@@ -68,23 +79,11 @@ git push origin main
   - Set **Branch name pattern** to `main`
   - Enable "Require a pull request before merging"
   - Enable "Require status checks to pass before merging"
-  - Add `validate` as a required status check
-  - Enable "Require branches to be up to date before merging"
-- [ ] Create a **Classic PAT** (any scope, e.g. `public_repo`) as repository secret
-      **`PROMOTE_TOKEN`** (Settings → Secrets and variables → Actions). The
-      promotion workflow uses it to auto-merge the `main`→`stable` PR; a
-      PAT-performed merge is a normal push and triggers the `:stable` build,
-      while a `GITHUB_TOKEN` auto-merge would be suppressed.
-- [ ] Configure `stable` with a **release protection ruleset** (Settings →
-      Rules → Rulesets, or `gh api repos/OWNER/REPO/rulesets`). Ruleset on
-      `refs/heads/stable`: "Pull request" (squash only), "Required status
-      checks" = `validate`, "Block force pushes" (`non_fast_forward`), "Block
-      deletions". Do NOT add "Require merge queue" — the merge queue is
-      org-owned-repo only and the API rejects a `merge_queue` rule on a
-      personal-account repo with `422 Invalid rule 'merge_queue'`.
+  - Add **`validate`** and **`build`** as required status checks
+  - Enable "Require branches to be up to date before merging" (optional)
 - [ ] Renovate will create a PR to pin your GitHub Actions to SHAs
 
-Renovate targets `main`; approved changes reach `stable` through the promotion flow.
+Renovate targets `main`; merging a Renovate PR publishes the updated image.
 
 **Agent skills:** `finpilot-onboarding` (branch protection), `finpilot-ci` (Renovate config)
 
@@ -108,14 +107,8 @@ Renovate targets `main`; approved changes reach `stable` through the promotion f
 
 ### 8. Deploy
 
-Test the candidate image from `main`:
+Merge a PR to `main` to publish the production image, then deploy it:
 
-```bash
-sudo bootc switch --transport registry ghcr.io/YOUR_USERNAME/YOUR_REPO:stable-testing
-sudo systemctl reboot
-```
-
-After merging the promotion to `stable`, deploy the production image:
 ```bash
 sudo bootc switch --transport registry ghcr.io/YOUR_USERNAME/YOUR_REPO:stable
 sudo systemctl reboot
@@ -152,7 +145,7 @@ Which skill to load for each checklist block above:
 | ------------------------------------- | ------------------------------------------- |
 | Rename (step 1)                       | `finpilot-templates`, `finpilot-onboarding` |
 | Enable Actions (step 2)               | `finpilot-onboarding`                       |
-| Branches + promotion (step 3)         | `finpilot-onboarding`, `finpilot-ci`        |
+| Single-branch main (step 3)            | `finpilot-onboarding`, `finpilot-ci`        |
 | Renovate + branch protection (step 5) | `finpilot-onboarding`, `finpilot-ci`        |
 | Raptor section (step 6)               | `finpilot-onboarding`, `finpilot-maintain`  |
 | Signing (optional)                    | `finpilot-templates`                        |

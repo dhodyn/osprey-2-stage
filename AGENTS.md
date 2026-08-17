@@ -12,52 +12,35 @@ links lives in `.agents/skills/README.md`.
 
 ## Branch Strategy
 
-- `main` is the **testing branch** — all feature and Renovate PRs land here,
-  and pushes publish `:stable-testing` images.
-- `stable` is the **production branch** — pushes publish `:stable` images.
-- Promotion is `main` → `stable` via squash PRs opened by
-  `.github/workflows/promote-main-to-stable.yml`. The factory reusable
-  `reusable-promote-squash.yml` hardcodes `--reviewer <owner>/maintainers`,
-  which cannot resolve on personal-account forks (teams are org-only), so this
-  repo implements the squash promotion locally and omits the reviewer request.
-  `sync-stable-to-main.yml` (`reusable-sync-branches.yml`) merges any direct
-  `stable` hotfixes back into `main`.
-- `stable` is protected by a **ruleset** (`stable — release protection`,
-  ruleset id 20697458: `pull_request` squash-only, required status check
-  `validate`, `non_fast_forward`, `deletion`). The promotion workflow enables
-  auto-merge on the PR with a **PAT** (`PROMOTE_TOKEN` secret); a PAT-performed
-  merge is a normal push and DOES trigger the `:stable` build. Do NOT enable
-  auto-merge with the runner token — GitHub suppresses workflow runs triggered
-  by `GITHUB_TOKEN` events, so `:stable` silently goes stale (verified
-  2026-08-11).
-- **No merge queue on this repo.** GitHub's merge queue is org-owned-repo
-  only; on a personal-account repo the API rejects a `merge_queue` ruleset
-  rule with `422 Invalid rule 'merge_queue'` (verified 2026-08-11), so the
-  upstream `enqueuePullRequest` path cannot run here. PAT auto-merge is the
-  fork-side delivery-mechanism deviation (approved) — not a return to
-  pull[bot]; upstream the reviewer bug in `projectbluefin/actions` (see header
-  comment in the workflow). Do not add `.github/pull.yml`.
-- Never commit directly to `stable`; it receives only promotion PRs.
+- **Single-branch model: `main` IS production.** There is no `stable` branch,
+  no promotion PR, no second ruleset, no PAT, no merge queue.
+- Every change — feature, fix, or Renovate update — lands via a PR to `main`.
+  Merging publishes `:stable` (plus `stable-daily-*` and version tags) and is
+  gated by the required checks **`validate`** and **`build`**.
+- PRs run a full image build (`build` check) and write the layer + DNF cache to
+  GHCR; the post-merge `main` build reuses that cache, so it is a fast
+  download/assemble/sign/push with no recompilation.
+- Merge method is context-driven: the repo allows merge commits, rebase, and
+  squash. Renovate keeps its `squash` automerge strategy. A 2-commit PR
+  rebase-merged lands as 2 commits.
+- **No forks:** public personal repos cannot disable forking, so fork PRs are
+  blocked by a guard step in `build-image.yml` that fails the `build` check
+  (forks would write to the shared cache with an untrusted tree).
+- Never commit directly to `main`; it receives only PRs.
 
 ## Release Workflow
 
-1. Open changes against `main`.
-2. Merge only after required validation and image build checks pass.
-3. Test `ghcr.io/OWNER/IMAGE:stable-testing`.
-4. Review the auto-opened promotion PR from `main` to `stable`
-   (`release/ready` label = cosign gate passed).
-5. The promotion workflow auto-merges the PR with a PAT and publishes
-   `ghcr.io/OWNER/IMAGE:stable`. Add the `do-not-merge` label to the promotion
-   PR to block auto-merge while testing.
+1. Open changes against `main` (branches inside this repo only; fork PRs fail).
+2. Merge only after required validation and image build checks pass
+   (`validate` + `build`).
+3. Merging to `main` publishes `ghcr.io/OWNER/IMAGE:stable` (signed with
+   keyless OIDC).
+4. Test the published `:stable` image (e.g. `sudo bootc switch ...:stable`)
+   before rolling out to production systems.
 
-| Branch   | Image tag         | Audience                       |
-| -------- | ----------------- | ------------------------------ |
-| `main`   | `:stable-testing` | Testers and release candidates |
-| `stable` | `:stable`         | Production systems             |
-
-The promotion release gate verifies cosign signatures on the `:testing` tag;
-enable keyless signing (SETUP_CHECKLIST "Enable Signing") for it to report
-`release/ready`.
+| Branch | Image tag | Audience             |
+| ------ | --------- | -------------------- |
+| `main` | `:stable` | Production systems   |
 
 ## CRITICAL: GitHub API Usage
 
@@ -108,9 +91,9 @@ enable keyless signing (SETUP_CHECKLIST "Enable Signing") for it to report
 4. **ALWAYS** use `dnf5` exclusively (never `dnf`, `yum`, `rpm-ostree`)
 5. **ALWAYS** use `-y` flag for non-interactive installs
 6. **NEVER** use `dnf5` in ujust files — only Brewfile/Flatpak shortcuts
-7. **NEVER** push directly to `main` (only via PR with passing `validate` check)
-8. **NEVER** push directly to `stable`; promote tested `main` commits via the promotion PR from `promote-main-to-stable.yml`
-9. **ALWAYS** test the `:stable-testing` image before merging a promotion to `stable`
+7. **NEVER** push directly to `main` (only via PR with passing `validate` + `build` checks)
+8. **NEVER** merge to `main` with failing required checks — merging publishes `:stable` to production
+9. **ALWAYS** verify the post-merge `:stable` build published and signed successfully before testing on production systems
 10. **ALWAYS** confirm with user before deviating from @ublue-os/bluefin patterns
 11. **ALWAYS** run shellcheck/YAML validation before committing
 12. **ALWAYS** follow numbered script convention: `10-*.sh`, `20-*.sh`, `30-*.sh`
@@ -156,6 +139,6 @@ Before marking work done:
 - [ ] Updated or created the relevant skill file?
 - [ ] Included that learning in this PR?
 
-**Last Updated**: 2026-08-11
+**Last Updated**: 2026-08-12
 **Template Version**: finpilot (Agent UX Overhaul)
 **Maintainer**: Universal Blue Community
