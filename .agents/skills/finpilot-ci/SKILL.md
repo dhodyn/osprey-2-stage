@@ -33,7 +33,9 @@ description: >-
 
 | File                          | Trigger                           | Purpose                                                       |
 | ----------------------------- | --------------------------------- | ------------------------------------------------------------- |
-| `build-image.yml`             | push main + PR → main, manual     | Build on PR (writes layer+DNF cache); publish `:stable` on merge |
+| `build-image.yml`             | push main + stable, manual        | Publish `:stable-testing` (main) or `:stable` (stable)        |
+| `promote-main-to-stable.yml`  | push main, manual                 | Squash promotion PR `main` → `stable` (local impl)            |
+| `sync-stable-to-main.yml`     | push stable                       | Merge direct `stable` hotfixes back to `main` (usually no-op) |
 | `pr-validation.yml`           | PR → main                         | shellcheck + hadolint + pre-commit via `validate-pr`          |
 | `renovate.yml`                | schedule 6h, push renovate config | Self-hosted Renovate runner                                   |
 | `clean.yml`                   | schedule weekly                   | Delete GHCR images older than 90 days                         |
@@ -42,51 +44,64 @@ description: >-
 | `validate-justfiles.yml`      | PR paths: `Justfile`              | `just --list` syntax check                                    |
 | `validate-renovate.yml`       | PR paths: `.github/renovate.json` | `renovate-config-validator`                                   |
 
-## Single-Branch Model and Cache
+## Branch Promotion and Tags
 
-- **`main` IS production.** There is no `stable` branch, no promotion PR, no
-  PAT, no second ruleset, no merge queue. Merging a PR to `main` publishes
-  `:stable` (plus `stable-daily-*` and version tags).
-- **PRs are the gate.** A PR runs a full image build (`build` check) and, since
-  forks are blocked by the guard step, can safely write both the registry layer
-  cache (`REGISTRY_CACHE_WRITE: "1"`) and the DNF cache. The post-merge `main`
-  build reuses that cache → fast download/assemble/sign/push, no recompilation.
-- **Branch protection required checks use JOB names as contexts.** `main`
-  requires `["validate", "build"]`, matching the `validate` job in
-  `pr-validation.yml` and the `build` job in `build-image.yml` (job names, not
-  workflow names — `build-image.yml` would report `build-image` if the job were
-  unnamed). A context that matches no check run leaves the PR
-  `mergeStateStatus: BLOCKED` despite every check passing. Verify with
-  `gh pr view N --json mergeStateStatus` before opening a support ticket.
-- **No `paths-ignore` on `build-image.yml` — and don't add one.** A skipped
-  required workflow never reports its check, so docs-only PRs land in
-  `mergeStateStatus: BLOCKED` with no failing check. Every PR builds (cheap:
-  ~5 min with cache); that is the fail-closed posture for `main` being
-  production. Same trap applies to the `*validate*.yml` glob that used to be
-  ignored.
-- **Fork guard:** `Block fork PRs` runs first in `build-image.yml` and exits 1
-  on any PR whose `head.repo.full_name != github.repository`. Public personal
-  repos cannot disable forking, so this is the only defense against fork PRs
-  writing to the shared cache with an untrusted tree.
-- **Cache reuse is verified** (benchmarked 2026-08-12 on a pristine clone:
-  cold build 269s vs warm build 36.5s with one package added, all unchanged
-  layers `Using cache`). `preflight` runs `podman login` to ghcr.io with the
-  `GITHUB_TOKEN` before the build on both push and PR runs, so `--cache-to`
-  writes during a same-repo PR build work — no separate login step needed.
-- The `Determine image tag` step is gone; `TAG_STREAM` is hardcoded to
-  `"stable"` and `Finalize branch tags` just dedupes generated tags and
-  guarantees the mutable `:stable` tag is always published.
-- Keyless signing (the optional step in `build-image.yml`) is enabled; merges
-  publish signed `:stable`. Verify with `cosign verify`.
-- `gh` in `run:` steps needs the token. Add `GH_TOKEN: ${{ github.token }}`
+- `main` is the testing branch and publishes `:stable-testing` (plus bare
+  `:testing`, which the promotion release gate resolves).
+- `stable` is the production branch and publishes `:stable`.
+- Promotion uses a **local** squash workflow (`promote-main-to-stable.yml`)
+  plus `reusable-sync-branches.yml` from `projectbluefin/actions`. pull[bot] /
+  `.github/pull.yml` was rejected (issues #235/#237); do not add it.
+- **Personal-account forks must not use `reusable-promote-squash.yml`.** It
+  hardcodes `--reviewer <owner>/maintainers`; teams are org-only, so
+  `requestReviewsByLogin` fails right after the PR is created and every
+  promotion run exits 1 (plus a spurious "promotion conflict" issue). The
+  local workflow drops the reviewer and calls the factory release gate
+  (`reusable-release-gate.yml`) directly. Fix upstream before switching back.
+- **`gh` in `run:` steps needs the token.** Add `GH_TOKEN: ${{ github.token }}`
   at the job level or every `gh` call fails with "To use GitHub CLI in a GitHub
   Actions workflow, set the GH_TOKEN environment variable."
+- **`stable` is protected by a ruleset; promotion merges via PAT auto-merge.**
+  The promotion workflow enables `gh pr merge --squash --auto` with
+  `GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}` (a PAT). A PAT-performed merge is a
+  normal push and fires the `:stable` build. Do NOT enable auto-merge with the
+  runner token: GitHub suppresses workflow runs triggered by `GITHUB_TOKEN`
+  events, so a GITHUB_TOKEN merge to `stable` produces NO `Build and Push
+  Image` run and `:stable` silently goes stale (verified 2026-08-11: merged
+  commit had zero workflow runs).
+- **No merge queue on personal-account repos.** GitHub's merge queue is
+  org-owned-repo only; the API rejects a `merge_queue` ruleset rule on a
+  user-owned repo with `422 Invalid rule 'merge_queue'` (verified 2026-08-11),
+  so the upstream `enqueuePullRequest` path (projectbluefin/bluefin
+  `use_merge_queue: true`) cannot run here. Do not add a `merge_queue` rule to
+  the `stable` ruleset; PAT auto-merge is the fork-side delivery mechanism.
+- **Auto-merge races with mergeability.** Right after `gh pr
+  create` the PR's mergeability is `UNKNOWN`; retry the enable in a
+  loop (~60s). `gh pr merge --auto` also **requires a merge method flag**
+  (`--squash`) when non-interactive. Auto-merge stays blocked until `validate`
+  (the posted status) propagates.
+- **Bot-created PRs park PR-triggered runs in `action_required`.** The promotion
+  PR is created with the runner token, so `PR Validation` and
+  `enforce workflow labels` runs on it are held by the platform approval gate
+  (0 jobs, `conclusion: action_required`) until a maintainer approves. Harmless
+  here: the promotion posts the synthetic `validate=success` status, which
+  satisfies the ruleset's required check. Do NOT switch these to
+  `pull_request_target` to "fix" it — that changes the security model.
+- The conflict-issue auto-close must match **both** historical titles:
+  `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
+  (the factory-reusable-era title).
+- The `Determine image tag` step sets `TAG_STREAM=testing` off the production
+  branch; `Finalize branch tags` renames `testing*` tags to `stable-testing-*`
+  so they never collide with production `stable-daily*` aliases.
+- The release gate verifies cosign signatures on `:testing`; keyless signing
+  (optional step in `build-image.yml`) must be enabled for `release/ready`.
 - **Caller permissions are the ceiling.** Any workflow that calls a reusable
   workflow must grant a `permissions:` block that is a superset of every job
   permission the callee declares — an explicit caller block zeroes unlisted
-  scopes. Without it GitHub rejects the run with `startup_failure` before any
-  job starts (no log to diagnose). actionlint does not model this check — keep
-  callee scopes in sync manually.
+  scopes. The promotion caller needs `packages: read` because the reusable
+  release gate reads GHCR; without it GitHub rejects the run with
+  `startup_failure` before any job starts (no log to diagnose). actionlint does
+  not model this check — keep callee scopes in sync manually.
 
 ## Composite Action Pins
 

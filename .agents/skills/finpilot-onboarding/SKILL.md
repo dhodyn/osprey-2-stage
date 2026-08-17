@@ -72,23 +72,15 @@ This token allows Renovate to open PRs for digest bumps and dependency updates.
 
 ### Configure Branch Protection for `main`
 
-`main` IS production in the single-branch model: merging a PR publishes
-`:stable`. There is no `stable` branch or promotion PR.
-
 1. **Settings → Branches → Add rule**
 2. Branch name pattern: `main`
 3. Enable:
    - **Require a pull request before merging**
    - **Require status checks to pass before merging**
-   - Add **`validate`** (from `pr-validation.yml`) and **`build`** (the full
-     image build in `build-image.yml`) as required status checks
+   - Add `validate` as a required status check (from `pr-validation.yml`)
    - (Optional) **Require branches to be up to date before merging**
-4. **Settings → General → Pull requests**: allow **merge commits, rebase, and
-   squash** — merge method is context-driven per PR (Renovate uses squash)
 
-This ensures PRs are validated and image-built before merging and Renovate can
-auto-merge safe digest updates. Fork PRs are blocked by the guard step in
-`build-image.yml` (main is production; no testing stream to absorb forks).
+This ensures PRs are validated before merging and Renovate can auto-merge safe digest updates.
 
 ## First Green Build
 
@@ -159,7 +151,7 @@ later for production — full keyless OIDC setup and verification:
 - `RENOVATE_TOKEN` not set but Renovate workflow is enabled (fails silently or errors on first run)
 - `cosign.pub` or `cosign.key` added to the repo
 - Auto-merge not enabled, causing Renovate digest PRs to sit unmerged
-- Branch protection missing `validate` + `build` as required checks
+- Branch protection missing `validate` as a required check
 - README missing the "What Makes this Raptor Different" section entirely
 
 ## Verification
@@ -168,7 +160,7 @@ later for production — full keyless OIDC setup and verification:
 - [ ] GitHub Actions enabled in the fork?
 - [ ] `RENOVATE_TOKEN` secret added (Classic PAT, `repo` + `workflow`)?
 - [ ] Auto-merge enabled in repository settings?
-- [ ] Branch protection for `main` configured with `validate` + `build` as required checks?
+- [ ] Branch protection for `main` configured with `validate` as required check?
 - [ ] First green build succeeded and image published to GHCR?
 - [ ] README contains the "What Makes this Raptor Different" section?
 - [ ] Optional signing enabled (or deferred for later)?

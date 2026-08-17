@@ -105,33 +105,6 @@ The major version is controlled by the `FEDORA_MAJOR_VERSION` ARG and the `FROM`
 2. Update the Renovate rule that blocks major updates for the base image
 3. Test with `just build` — expect `bootc container lint --fatal-warnings` to catch regressions
 
-## Registry Layer Cache (`just build`)
-
-The `build` recipe passes `--cache-from` / `--cache-to` to podman so PR and
-post-merge builds reuse unchanged layers from the GHCR repo instead of
-recompiling:
-
-- **Cache refs must be a bare repository** (`ghcr.io/owner/image`, no
-  `:tag`/`:digest`). podman 5.8.4 rejects tagged refs for both
-  `--cache-from` and `--cache-to` — the `type=registry,ref=` buildah syntax is
-  also unsupported. Do not "fix" the ref by adding `:stable` or `:latest`.
-- The cache is stored as **digest-tagged manifests** in the repo (bare 64-hex
-  tags like `da2b09fb...`), never as a `latest` tag. Their absence/presence of
-  `latest` is normal; the hex tags ARE the layer cache.
-- **CI-only (single-flag gate):** `REGISTRY_CACHE_WRITE=1` (set for BOTH PR
-  builds and `main` pushes in `build-image.yml`) enables `--cache-from` AND
-  `--cache-to`. PRs write the cache; the post-merge build reads it back before
-  publishing `:stable`. Local builds (`REGISTRY_CACHE_WRITE` unset) get **no
-  cache args at all** — they build purely from podman's local storage cache
-  and never read from or write to GHCR. Do not add cache args outside the
-  `REGISTRY_CACHE_WRITE=1` branch; local/CI cache separation is intentional.
-- The `skopeo list-tags` gate (inside the write flag branch) is the safety
-  valve: if the repo is unreachable or missing, no cache args are added and
-  the build degrades to a plain build.
-- **Verifying cache reuse:** `podman build` prints `--> Using cache <sha>`
-  per layer it reused. Locally reproducible with `podman run -d -p 5000:5000
-  registry:2` + `--tls-verify=false` against `localhost:5000`.
-
 ## Common Rationalizations
 
 | Rationalization                                                      | Reality                                                                                                |
