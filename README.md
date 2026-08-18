@@ -1,4 +1,4 @@
-# osprey
+# osprey-2-stage
 
 A template for building custom bootc operating system images based on the lessons from [Universal Blue](https://universal-blue.org/) and [Bluefin](https://projectbluefin.io). It is designed to be used manually, but is optimized to be bootstraped by GitHub Copilot. After set up you'll have your own custom Linux.
 
@@ -77,13 +77,13 @@ promotion flow publishes signed `:stable` images. Verify the signatures:
 
 ```
 cosign verify \
-  --certificate-identity-regexp="https://github.com/dhodyn/osprey/.github/workflows/" \
+  --certificate-identity-regexp="https://github.com/dhodyn/osprey-2-stage/.github/workflows/" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/dhodyn/osprey:stable
+  ghcr.io/dhodyn/osprey-2-stage:stable
 ```
 
 Test images from `main` publish as `:stable-testing`; verify those with the same
-command against `ghcr.io/dhodyn/osprey:stable-testing`. Then follow the
+command against `ghcr.io/dhodyn/osprey-2-stage:stable-testing`. Then follow the
 maintenance schedule in the `finpilot-maintain` skill (weekly Renovate merges,
 monthly test loop, quarterly cleanup, annual Fedora bump).
 
@@ -271,9 +271,9 @@ Verify your images with:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp="https://github.com/dhodyn/osprey/.github/workflows/" \
+  --certificate-identity-regexp="https://github.com/dhodyn/osprey-2-stage/.github/workflows/" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/dhodyn/osprey:stable
+  ghcr.io/dhodyn/osprey-2-stage:stable
 ```
 
 ## Love Your Image? Let's Go to Production
