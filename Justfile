@@ -1,4 +1,4 @@
-export IMAGE_NAME := env("IMAGE_NAME", "osprey")
+export IMAGE_NAME := env("IMAGE_NAME", "osprey-2-stage")
 export DEFAULT_TAG := env("DEFAULT_TAG", "stable")
 export PODMAN := env("PODMAN", "podman")
 export REPO_ORG := env("GITHUB_REPOSITORY_OWNER", "projectbluefin")
