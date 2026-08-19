@@ -2,12 +2,11 @@
 name: Promote main to stable
 
 # Two-branch model: `main` is the testing branch (publishes :stable-testing),
-# `stable` is the production branch (publishes :stable). On every push to
-# `main` this workflow opens (or refreshes) a squash promotion PR from `main`
+# `stable` is the production branch (publishes :stable via retag). On every push
+# to `main` this workflow opens (or refreshes) a squash promotion PR from `main`
 # to `stable`; `stable` is protected by a ruleset, so the workflow enables
-# auto-merge on the PR using a PAT (PROMOTE_TOKEN). A PAT-performed merge is a
-# regular push event and DOES trigger the :stable build — unlike a GITHUB_TOKEN
-# `gh pr merge --auto`, whose events GitHub suppresses.
+# auto-merge on the PR using a PAT (PROMOTE_TOKEN). After auto-merge is enabled,
+# the workflow retags :testing as :stable via skopeo — no rebuild needed.
 #
 # WHY NOT A MERGE QUEUE? GitHub's merge queue is org-owned-repo only; on a
 # personal-account repo the API rejects a `merge_queue` ruleset rule with 422
@@ -36,7 +35,7 @@ permissions:
   issues: write
   actions: read
   statuses: write
-  packages: read
+  packages: write
 
 concurrency:
   group: promote-main-to-stable
@@ -51,6 +50,7 @@ jobs:
       contents: write
       pull-requests: write
       statuses: write
+      packages: write
     outputs:
       sync_needed: ${{ steps.compare.outputs.sync_needed }}
       source_sha: ${{ steps.compare.outputs.source_sha }}
@@ -303,8 +303,8 @@ jobs:
         run: |
           set -euo pipefail
           # stable is protected by a ruleset (required check: validate, posted
-          # above). Merge with the PAT so the push fires the :stable build —
-          # GITHUB_TOKEN merges are suppressed by GitHub's recursion guard.
+          # above). Merge with the PAT so the push event fires; GITHUB_TOKEN
+          # merges are suppressed by GitHub's recursion guard.
           # Right after creation the PR's mergeability is still UNKNOWN and
           # GitHub refuses to enable auto-merge; retry for ~40s before giving up.
           for _ in $(seq 1 8); do
@@ -318,6 +318,25 @@ jobs:
             sleep 5
           done
           echo "⚠️  Auto-merge not available — maintainer merges when checks pass"
+
+      - name: Login to GitHub Container Registry
+        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag testing as stable
+        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}"
+          skopeo copy \
+            --authfile "${HOME}/.docker/config.json" \
+            "docker://${IMAGE}:testing" \
+            "docker://${IMAGE}:stable"
+          echo "✅ Retagged ${IMAGE}:testing as ${IMAGE}:stable"
 
       - name: Report do-not-merge label block
         if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'true'
