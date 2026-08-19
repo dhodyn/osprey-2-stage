@@ -4,8 +4,10 @@ name: Build and Push Image
 # Two-branch model:
 #   main   = testing branch, publishes :stable-testing (plus :testing for the
 #            factory release gate)
-#   stable = production branch, publishes :stable
-# promote-main-to-stable.yml opens the main -> stable promotion PR.
+#   stable = production branch, publishes :stable via retag (not rebuild)
+# promote-main-to-stable.yml opens the main -> stable promotion PR and
+# retags :testing as :stable after merge — no rebuild on stable.
+# workflow_dispatch is kept for manual rebuilds (e.g. emergency hotfix).
 #
 # PR builds are disabled by default to save CI minutes. To enable them, add:
 #   pull_request:
@@ -18,7 +20,6 @@ on:
   push:
     branches:
       - main
-      - stable
     paths-ignore:
       - "**.md"
       - ".github/workflows/*validate*.yml"
@@ -163,10 +164,10 @@ jobs:
 
       # generate-tags emits stream-native tags (testing* or stable-daily* plus
       # version aliases). For testing builds this renames testing* tags to
-      # stable-testing-*, keeps the bare :testing tag (the factory release
-      # gate in reusable-promote-squash.yml resolves digests from it), and
-      # guarantees the mutable consumer tag (:stable / :stable-testing) is
-      # always published.
+      # stable-testing-*, keeps the bare :testing tag (used by the promotion
+      # release gate and retag step), and guarantees the mutable consumer tag
+      # (:stable-testing) is always published. :stable is published separately
+      # by the promotion workflow via skopeo retag.
       - name: Finalize branch tags
         if: steps.detect-changes.outputs.should_build == 'true' || github.event_name != 'pull_request'
         id: branch-tags
@@ -229,7 +230,8 @@ jobs:
                           "${DEFAULT_TAG}" \
                           "${ALIAS_TAGS}"
 
-      # Publish from both the testing (main) and production (stable) branches;
+      # Publish from main (testing). stable gets :stable via retag in
+      # promote-main-to-stable.yml, not a rebuild here.
       # PR builds only build and validate, they never publish.
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
