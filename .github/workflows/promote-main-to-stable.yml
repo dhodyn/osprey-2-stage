@@ -328,7 +328,7 @@ jobs:
     name: Release gate checks
     needs: [promote]
     if: needs.promote.outputs.sync_needed == 'true' && needs.promote.outputs.promoted != 'false'
-    uses: projectbluefin/actions/.github/workflows/reusable-release-gate.yml@cad7d15c30224a7a1a49c5ff0fd2054ca57b9cfd # v1
+    uses: projectbluefin/actions/.github/workflows/reusable-release-gate.yml@eb4c546389f19ad9e42f1af052623de73c620ebb # v1
     with:
       repo: ${{ github.repository }}
       pr_number: ${{ needs.promote.outputs.pr_number }}
