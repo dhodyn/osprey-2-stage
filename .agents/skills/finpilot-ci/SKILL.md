@@ -95,6 +95,53 @@ description: >-
   so they never collide with production `stable-daily*` aliases.
 - The release gate verifies cosign signatures on `:testing`; keyless signing
   (optional step in `build-image.yml`) must be enabled for `release/ready`.
+
+## Build Timeouts and the GHCR Layer Cache
+
+The Justfile seeds builds with a registry layer cache:
+`podman build --cache-from/--cache-to ghcr.io/<owner>/<image>` (gated on an
+anonymous `skopeo list-tags` succeeding). Cache tags are content-hash-named
+(`<repo>:<64-hex>`); hashes are **stable across runs** for identical inputs.
+
+**Root cause (verified 2026-08-26):** Rootful podman on CI runners falls
+back to **VFS** storage driver (native-overlay disabled, btrfs loopback
+absent). VFS copies the entire ~12 GB rootfs per RUN step — buildah
+commit takes 18-24 min per step, guaranteeing timeout at any reasonable
+`timeout_minutes`. Rootless podman uses **fuse-overlayfs** with instant
+commits (~3 s). The fix is to run all podman commands rootless (no sudo).
+
+**CI workflow architecture (rootless):**
+- Build: `just build` → rootless podman build with `--cache-from/--cache-to`
+- Seed-pull: pre-pull last published image to populate blob-info cache
+- Tag: inline `podman tag` (rootless)
+- Push: inline `podman push` with retry + zstd:chunked + `skopeo copy` aliases
+- Sign: inline `cosign sign` keyless (OIDC/Fulcio) + verify + legacy .sig check
+- No `sudo` anywhere — no rootful storage involved
+- No bridge step — everything shares rootless storage
+
+Failure signature (Aug 18–25, 2026): every "Build and Push Image" run
+fails at exactly `timeout_minutes`; then `nick-fields/retry` crashes with
+`Error: kill EPERM` — the build runs under `sudo`, so the process tree is
+root-owned and node cannot kill it. **`max_attempts` never retries.**
+
+Key rules:
+
+- **All podman commands must run rootless** on CI. Never add `sudo` to
+  podman/buildah commands — VFS fallback is invisible and catastrophic.
+- **Serialize main/stable builds** (`concurrency.group: github.workflow`,
+  `cancel-in-progress: false`) so stable promotion inherits main's fresh
+  cache layers instead of racing cold; queued runs must never cancel an
+  in-progress production publish mid-push.
+- **Recovering a missed `:stable`:** re-run the failed run (`gh run rerun`)
+  once the cache works. Promotion PRs are already PAT-merged at that point;
+  nothing retries automatically. Re-runs use the original commit's workflow
+  definition — a fix merged afterwards does NOT apply to re-runs.
+- **Renaming the image/repo resets the registry cache to empty** (new GHCR
+  repo), and package visibility flips (public/private) change whether the
+  anonymous `list-tags` gate passes at all — check both when builds suddenly
+  go cold.
+- `timeout_minutes: 240` fits one attempt inside GitHub's 360-min job
+  ceiling; don't rely on retries (EPERM crash above).
 - **Caller permissions are the ceiling.** Any workflow that calls a reusable
   workflow must grant a `permissions:` block that is a superset of every job
   permission the callee declares — an explicit caller block zeroes unlisted
