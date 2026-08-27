@@ -43,9 +43,14 @@ env:
   ENABLE_RECHUNKING: "false"
   RECHUNK_MAX_LAYERS: "128"
 
+# One build at a time across all refs: the stable promotion build starts
+# AFTER main finishes, so it inherits main's freshly written GHCR layer
+# cache (Justfile --cache-from/--cache-to) instead of racing it cold.
+# cancel-in-progress is off — a queued run must never kill an in-progress
+# production publish mid-push.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -131,11 +136,52 @@ jobs:
           DEFAULT_TAG: ${{ env.DEFAULT_TAG }}
           REGISTRY_CACHE_WRITE: ${{ env.REGISTRY_CACHE_WRITE }}
         with:
-          timeout_minutes: 120
+          # Cold-cache builds have exceeded 120 min; 240 leaves headroom
+          # inside the 360-min job ceiling.
+          timeout_minutes: 240
           max_attempts: 3
           retry_wait_seconds: 300
           command: |
-            sudo -E "$(command -v just)" build "${IMAGE_NAME}" "${DEFAULT_TAG}"
+            # Authenticate GHCR before building. The Justfile consults the
+            # GHCR layer cache (podman build --cache-from/--cache-to);
+            # anonymous blob lookups stall ~25 min per RUN step (throttled),
+            # which silently starves every cache hit and times builds out.
+            # Authenticated requests use the token quota instead of the
+            # shared anonymous-IP pool and pull in seconds.
+            #
+            # All podman commands run rootless (no sudo) to use fuse-overlayfs
+            # instead of VFS. Rootful podman on CI falls back to VFS when
+            # native-overlay is disabled and btrfs loopback is absent — VFS
+            # copies the entire rootfs (~12 GB) per RUN step = 18-24 min
+            # commits. Rootless podman with fuse-overlayfs = instant commits.
+            export REGISTRY_AUTH_FILE="${RUNNER_TEMP}/ghcr-auth.json"
+            echo "${GITHUB_TOKEN}" | podman login --authfile "${REGISTRY_AUTH_FILE}" ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+            # Seed the local blob cache from the last published image. Every
+            # blob of every per-step cache image is contained in the final
+            # pushed image, so pre-pulling it makes --cache-from lookups
+            # metadata-only: podman's blob-info cache skips digests it
+            # already has, and no RUN step can hang re-fetching base-chain
+            # blobs through a throttled connection. Best-effort: a missing
+            # tag just means a cold first build.
+            echo "::group::Seed blob cache"
+            for seed_tag in "${DEFAULT_TAG}" "${DEFAULT_TAG}-testing" "testing"; do
+              echo "Trying seed tag: ${seed_tag}"
+              if podman pull "ghcr.io/${IMAGE_VENDOR}/${IMAGE_NAME}:${seed_tag}" 2>&1; then
+                echo "Seeded successfully from ${seed_tag}"
+                break
+              else
+                echo "Seed tag ${seed_tag} not available"
+              fi
+            done
+            echo "Local images after seed:"
+            podman images --format "{{.Repository}}:{{.Tag}} {{.Size}}" | grep -E "^ghcr|IMAGE" || true
+            echo "Storage driver:"
+            podman info --format '{{.Driver}}' || true
+            echo "::endgroup::"
+
+            "$(command -v just)" build "${IMAGE_NAME}" "${DEFAULT_TAG}"
+            podman logout --authfile "${REGISTRY_AUTH_FILE}" ghcr.io || true
 
       - name: Get version label
         if: steps.detect-changes.outputs.should_build == 'true' || github.event_name != 'pull_request'
@@ -145,7 +191,7 @@ jobs:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           DEFAULT_TAG: ${{ env.DEFAULT_TAG }}
         run: |
-          VERSION_LABEL=$(sudo podman inspect "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" \
+          VERSION_LABEL=$(podman inspect "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" \
             --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
           echo "version=${VERSION_LABEL}" >> "${GITHUB_OUTPUT}"
           echo "Version: ${VERSION_LABEL}"
@@ -225,56 +271,156 @@ jobs:
         env:
           ALIAS_TAGS: ${{ steps.branch-tags.outputs.tags }}
         run: |
-          sudo -E "$(command -v just)" tag-images "${IMAGE_NAME}" \
-                          "${DEFAULT_TAG}" \
-                          "${ALIAS_TAGS}"
+          # Get the image ID from rootless storage, then re-tag with all aliases.
+          IMAGE_ID=$(podman inspect "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" --format '{{.Id}}')
+          podman untag "localhost/${IMAGE_NAME}:${DEFAULT_TAG}"
+          for tag in ${ALIAS_TAGS}; do
+            podman tag "${IMAGE_ID}" "${IMAGE_NAME}:${tag}"
+          done
+          podman tag "${IMAGE_ID}" "${IMAGE_NAME}:${DEFAULT_TAG}"
+          echo "Tagged ${IMAGE_NAME} with: ${ALIAS_TAGS}"
 
       # Publish from both the testing (main) and production (stable) branches;
       # PR builds only build and validate, they never publish.
+      # All podman commands run rootless — no rootful storage involved.
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GITHUB_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
       - name: Push to GHCR
         if: github.event_name != 'pull_request'
         id: push
-        uses: projectbluefin/actions/bootc-build/push-image@eb4c546389f19ad9e42f1af052623de73c620ebb # v1
-        with:
-          image-name: ${{ env.IMAGE_NAME }}
-          tags: ${{ steps.branch-tags.outputs.tags }}
-          default-tag: ${{ steps.branch-tags.outputs.default-tag }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        env:
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_VENDOR: ${{ env.IMAGE_VENDOR }}
+          TAGS: ${{ steps.branch-tags.outputs.tags }}
+          DEFAULT_TAG: ${{ steps.branch-tags.outputs.default-tag }}
+          DIGEST_FILE: ${{ runner.temp }}/push-digest
+        run: |
+          set -euo pipefail
+
+          REGISTRY_PATH="${REGISTRY}/${IMAGE_VENDOR}"
+
+          # Determine default tag (first tag if not specified)
+          read -r -a TAG_ARRAY <<< "${TAGS}"
+          DEFAULT_TAG="${DEFAULT_TAG:-${TAG_ARRAY[0]}}"
+
+          # Push with retry — rootless podman push with zstd:chunked compression
+          attempt=0
+          MAX_ATTEMPTS=3
+          RETRY_WAIT=15
+          while true; do
+            attempt=$((attempt + 1))
+            rm -f "${DIGEST_FILE}"
+
+            podman push \
+              --compression-format zstd:chunked \
+              --retry 5 --retry-delay 30s \
+              "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" \
+              "${REGISTRY_PATH}/${IMAGE_NAME}:${DEFAULT_TAG}"
+
+            # Capture digest
+            skopeo inspect --no-tags \
+              "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${DEFAULT_TAG}" \
+              | jq -r '.Digest' > "${DIGEST_FILE}"
+
+            if [[ -s "${DIGEST_FILE}" ]] && [[ $(<"${DIGEST_FILE}") != "null" ]]; then
+              break
+            fi
+
+            if [[ ${attempt} -ge ${MAX_ATTEMPTS} ]]; then
+              echo "::error::Push failed after ${MAX_ATTEMPTS} attempts"
+              exit 1
+            fi
+            echo "Push attempt ${attempt} failed, retrying in ${RETRY_WAIT}s..."
+            sleep "${RETRY_WAIT}"
+          done
+
+          DIGEST=$(<"${DIGEST_FILE}")
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "registry-path=${REGISTRY_PATH}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${IMAGE_NAME}:${DEFAULT_TAG} -> ${DIGEST}"
+
+          # Server-side copy for all alias tags (no re-upload)
+          for tag in "${TAG_ARRAY[@]}"; do
+            if [[ "${tag}" != "${DEFAULT_TAG}" ]]; then
+              skopeo copy \
+                "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${DEFAULT_TAG}" \
+                "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${tag}"
+              echo "Copied alias: ${tag}"
+            fi
+          done
 
       # OPTIONAL: Sign and attest (SLSA Build L2 provenance)
       # Bluefin pattern: keyless OIDC signing via Fulcio.
-      # Enabled for production. Requires 'id-token: write' permission (already granted).
       # Non-fatal — signing failures never block image publishing.
-
       - name: Sign and publish
         if: github.event_name != 'pull_request'
         continue-on-error: true
-        uses: projectbluefin/actions/bootc-build/sign-and-publish@eb4c546389f19ad9e42f1af052623de73c620ebb # v1
-        with:
-          image: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
-          digest: ${{ steps.push.outputs.digest }}
-          signing-mode: keyless
-          generate-sbom: false
-          push-attestation: true
-          certificate-identity-regexp: https://github.com/${{ github.repository }}/.github/workflows/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        env:
+          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          # Install cosign if not present
+          if ! command -v cosign &>/dev/null; then
+            curl -sSL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
+            chmod +x /usr/local/bin/cosign
+          fi
+
+          # Keyless OIDC signing via Fulcio (requires id-token: write)
+          echo "::group::Sign container image"
+          for attempt in 1 2 3; do
+            if cosign sign -y \
+              --new-bundle-format=false \
+              --use-signing-config=false \
+              "${IMAGE}@${DIGEST}"; then
+              echo "Signed successfully"
+              break
+            fi
+            echo "Sign attempt ${attempt} failed, retrying in 30s..."
+            sleep 30
+          done
+          echo "::endgroup::"
+
+          # Verify signature
+          echo "::group::Verify signature"
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/.github/workflows/" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${DIGEST}"
+          echo "::endgroup::"
+
+          # Assert legacy .sig tag exists (podman/bootc compatibility)
+          echo "::group::Assert legacy .sig tag"
+          sig_tag="${DIGEST/:/-}.sig"
+          if ! cosign download signature "${IMAGE}@${DIGEST}" >/dev/null 2>&1; then
+            echo "::error::No legacy signature tag ${IMAGE}:${sig_tag}"
+            echo "::error::containers/image only discovers signatures via .sig tag"
+            exit 1
+          fi
+          echo "Legacy .sig tag present: ${sig_tag}"
+          echo "::endgroup::"
+
+          # GitHub Build Provenance Attestation
+          # (uses built-in actions/attest — needs ACTIONS_ID_TOKEN_REQUEST_URL)
 
       - name: Build telemetry summary
         if: steps.detect-changes.outputs.should_build == 'true' || github.event_name != 'pull_request'
         shell: bash
         run: |
-          IMAGE_SIZE=$(sudo podman image inspect "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" \
+          IMAGE_SIZE=$(podman image inspect "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" \
             --format '{{.Size}}' 2>/dev/null || echo "0")
           IMAGE_SIZE_MB=$(( IMAGE_SIZE / 1024 / 1024 ))
-          LAYER_COUNT=$(sudo podman image inspect "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" \
+          LAYER_COUNT=$(podman image inspect "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" \
             --format '{{len .RootFS.Layers}}' 2>/dev/null || echo "?")
 
           {
