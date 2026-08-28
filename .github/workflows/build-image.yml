@@ -181,7 +181,12 @@ jobs:
             echo "::endgroup::"
 
             "$(command -v just)" build "${IMAGE_NAME}" "${DEFAULT_TAG}"
+            build_rc=$?
+            # Logout must not mask the build result — a build failure must
+            # propagate so nick-fields/retry actually retries and downstream
+            # steps never run against a missing image.
             podman logout --authfile "${REGISTRY_AUTH_FILE}" ghcr.io || true
+            exit "${build_rc}"
 
       - name: Get version label
         if: steps.detect-changes.outputs.should_build == 'true' || github.event_name != 'pull_request'
