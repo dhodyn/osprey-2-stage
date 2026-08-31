@@ -36,7 +36,7 @@ description: >-
 | `build-image.yml`             | push main + stable, manual        | Publish `:stable-testing` (main) or `:stable` (stable)        |
 | `promote-main-to-stable.yml`  | push main, manual                 | Squash promotion PR `main` → `stable` (local impl)            |
 | `sync-stable-to-main.yml`     | push stable                       | Merge direct `stable` hotfixes back to `main` (usually no-op) |
-| `pr-validation.yml`           | PR → main + stable                  | shellcheck + hadolint + pre-commit via `validate-pr`          |
+| `pr-validation.yml`           | PR → main (fork: not stable)          | shellcheck + hadolint + pre-commit via `validate-pr`          |
 | `renovate.yml`                | schedule 6h, push renovate config | Self-hosted Renovate runner                                   |
 | `clean.yml`                   | schedule weekly                   | Delete GHCR images older than 90 days                         |
 | `validate-brewfiles.yml`      | PR paths: `custom/brew/**`        | Homebrew Brewfile syntax check                                |
@@ -92,18 +92,20 @@ description: >-
   are held at the platform approval gate, so every `pull_request`-triggered
   workflow (`pr-validation`, `enforce workflow labels`, and any path-gated
   validators) fires on the head and then resolves to **0-job `failure`** once
-  the PR auto-merges (nobody clicks the approval gate). **Empirically verified
-  2026-08-31 (promotion PR #127 after re-introducing `stable`): three
-  `pull_request` runs concluded `failure` with zero jobs, yet the PR still
-  auto-merged in ~31s** — so the failed runs are real but **non-blocking**.
-  The promotion posts the synthetic `validate=success` status to the head,
-  which satisfies the ruleset's required check independently of any workflow
-  run. Upstream lists `main` + `stable` and lives with
-  the noise. The fork briefly "fixed" it by restricting the two workflows to
-  `branches: [main]` (commit `d7e9d64`), reverted 2026-08-31 to match upstream
-  byte-for-byte. Keep them aligned with upstream — the noise is acceptable;
-  only diverge if a parked run provably blocks a merge. Do NOT "fix" the
-  parking via `pull_request_target` — that changes the security model.
+  the PR auto-merges (nobody clicks the approval gate). Empirically verified
+  2026-08-31 (promotion PR #127): three `pull_request` runs concluded
+  `failure` with zero jobs while the PR still auto-merged in ~31s. The failed
+  runs are therefore **non-blocking** (the promotion posts a synthetic
+  `validate=success` status that satisfies the required check), but they mark
+  every automated promotion as failed CI noise.
+  **MAINTAINED FIX: the fork restricts `pr-validation.yml` and
+  `label-enforcement.yml` to `branches: [main]`** (commit `d7e9d64`, kept
+  2026-08-31) so the promotion PR never triggers them and the noise is
+  dropped. `stable` only ever receives the auto-promotion PR, which posts its
+  own `validate` status, so restricting to `main` loses no validation.
+  Upstream lists `main` + `stable` and tolerates the noise — this is a
+  deliberate, documented fork divergence. Do NOT "fix" the parking via
+  `pull_request_target` — that changes the security model.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
   (the factory-reusable-era title).
