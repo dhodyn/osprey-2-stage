@@ -34,6 +34,7 @@ description: >-
 | Change Brewfiles, Flatpaks, or ujust           | `finpilot-custom`                      |
 | Change Containerfile, Justfile, or build/\*.sh | `finpilot-build`                       |
 | Fix CI or Renovate                             | `finpilot-ci` / `finpilot-maintain`    |
+| Compare fork to upstream / reconcile divergences | `finpilot-ci` (see the upstream-comparison note on promotion-PR parking) |
 | Open a PR                                      | `finpilot-pr-checklist`                |
 | Debug a build or deploy failure                | `finpilot-troubleshooting`             |
 | Follow a worked example                        | `finpilot-examples`                    |

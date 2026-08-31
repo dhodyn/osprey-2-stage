@@ -37,6 +37,15 @@ links lives in `.agents/skills/README.md`.
   fork-side delivery-mechanism deviation (approved) — not a return to
   pull[bot]; upstream the reviewer bug in `projectbluefin/actions` (see header
   comment in the workflow). Do not add `.github/pull.yml`.
+- **CI-validation fork divergence (verified).** `pr-validation.yml` and
+  `label-enforcement.yml` trigger on `branches: [main]` **only** — a deliberate
+  divergence from upstream (which also lists `stable`). Bot-authored
+  auto-promotion PRs park `pull_request` runs on `stable` at the platform
+  approval gate, which resolve to 0-job `failure` on auto-merge (verified
+  2026-08-31: three 0-job failures on promotion PR #127). Restricting to `main`
+  drops that noise; `stable` only receives the auto-promotion PR, which posts
+  its own `validate` status. When comparing to upstream, treat this diff as
+  expected (commits `d7e9d64` / `8d4cb3d`). Do NOT re-align to upstream.
 - Never commit directly to `stable`; it receives only promotion PRs.
 
 ## Release Workflow
