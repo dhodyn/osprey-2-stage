@@ -117,6 +117,20 @@ commits (~3 s). The fix is to run all podman commands rootless (no sudo).
 - Push: inline `podman push` with retry + zstd:chunked + `skopeo copy` aliases
 - Sign: inline `cosign sign` keyless (OIDC/Fulcio) + verify + legacy .sig check
 - No `sudo` anywhere — no rootful storage involved
+
+**cosign MUST be logged into GHCR before signing.** cosign pushes the signature
+blob itself, so it needs registry write credentials. After inlining away
+`docker/login-action` (which used to seed `~/.docker/config.json` that cosign
+reads), signing silently failed with
+`POST .../blobs/uploads/: UNAUTHORIZED: unauthenticated`. Because the step has
+`continue-on-error: true`, the build still succeeded and published `:testing`,
+but the `.sig` tag was never created — which then blocked the promotion release
+gate (`One or more digests failed cosign verification`, `release/blocked`) for
+every new digest (verified 2026-08-31). Fix: `echo "$GITHUB_TOKEN" | cosign
+login ghcr.io -u "$GITHUB_ACTOR" --password-stdin` inside the Sign step (with
+`GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` in the step env). Debug SIGNS of a
+missing signature: the current `:testing` digest has no
+`sha256-<hex>.sig` tag in the registry.
 - No bridge step — everything shares rootless storage
 
 Failure signature (Aug 18–25, 2026): every "Build and Push Image" run
