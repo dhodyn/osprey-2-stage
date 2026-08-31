@@ -98,23 +98,28 @@ description: >-
   runs are therefore **non-blocking** (the promotion posts a synthetic
   `validate=success` status that satisfies the required check), but they mark
   every automated promotion as failed CI noise.
-  **MAINTAINED FIX: the fork restricts `pr-validation.yml` and
-  `label-enforcement.yml` to `branches: [main]`** — commit `d7e9d64` (merged
-  as part of PR #132, squash commit `8d4cb3d`, kept 2026-08-31) — so the
-  promotion PR never triggers them and the noise is dropped. `stable` only
-  ever receives the auto-promotion PR, which posts its own `validate` status,
-  so restricting to `main` loses no validation. Upstream lists `main` +
-  `stable` and tolerates the noise — this is a **deliberate, documented fork
-  divergence**. Do NOT "fix" the parking via `pull_request_target` — that
-  changes the security model.
+  **WORKAROUND (keep only while upstream has the bug): the fork restricts
+  `pr-validation.yml` and `label-enforcement.yml` to `branches: [main]`** —
+  commits `d7e9d64` / `8d4cb3d` — so the promotion PR never triggers them and
+  the noise is dropped. `stable` only ever receives the auto-promotion PR,
+  which posts its own `validate` status, so restricting to `main` loses no
+  validation. This exists **only because upstream still lists `stable` in
+  these two workflows**; it is NOT a blessed permanent divergence. **Upstream
+  is truth:** do NOT "fix" the parking via `pull_request_target` (that changes
+  the security model), and do not widen this workaround.
 
-  > **Upstream-comparison note (2026-08-31).** Do NOT re-align these two files
-  > to upstream (`main` + `stable`) just because upstream's diff shows it. That
-  > exact change was tried (PR #126, commit `4d384d7`) and its parked-run noise
-  > re-verified in the wild on promotion PR #127 (three 0-job `failure` runs),
-  > then deliberately revoked (PR #132). This is the fork's one intentional
-  > quickcheck divergence in CI. When comparing to upstream, treat this
-  > difference as expected and leave it as-is.
+  > **Upstream-comparison gate (2026-08-31).** This is the fork's *only*
+  > CI-workaround for an upstream bug. History: upstream alignment was tried
+  > (PR #126, commit `4d384d7`) and its parked-run noise re-verified in the
+  > wild on promotion PR #127 (three 0-job `failure` runs), then deliberately
+  > revoked (PR #132). The rule is **adopt upstream, don't defend the fork
+  > workaround**: on every upstream comparison, check whether upstream fixed
+  > the parked-run noise (i.e. its `pr-validation.yml`/`label-enforcement.yml`
+  > dropped `stable`, or otherwise). If upstream fixed it, adopt upstream's
+  > exact content for that file and remove the fork restrictions — per file,
+  > as upstream fixes each. Only re-apply the restriction if the bug
+  > demonstrably still exists. The moment upstream resolves it, we stop
+  > carrying the workaround.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
   (the factory-reusable-era title).
