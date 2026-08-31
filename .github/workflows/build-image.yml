@@ -352,13 +352,28 @@ jobs:
           echo "registry-path=${REGISTRY_PATH}" >> "$GITHUB_OUTPUT"
           echo "Pushed ${IMAGE_NAME}:${DEFAULT_TAG} -> ${DIGEST}"
 
-          # Server-side copy for all alias tags (no re-upload)
+          # Server-side copy for all alias tags (no re-upload). Retry on
+          # transient GHCR network timeouts (e.g. "dial tcp ...:443: i/o
+          # timeout") — a single flaky alias copy must not fail the whole
+          # job after the primary push already succeeded.
           for tag in "${TAG_ARRAY[@]}"; do
             if [[ "${tag}" != "${DEFAULT_TAG}" ]]; then
-              skopeo copy \
-                "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${DEFAULT_TAG}" \
-                "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${tag}"
-              echo "Copied alias: ${tag}"
+              copy_attempt=0
+              while true; do
+                copy_attempt=$((copy_attempt + 1))
+                if skopeo copy \
+                  "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${DEFAULT_TAG}" \
+                  "docker://${REGISTRY_PATH}/${IMAGE_NAME}:${tag}"; then
+                  echo "Copied alias: ${tag}"
+                  break
+                fi
+                if [[ ${copy_attempt} -ge 3 ]]; then
+                  echo "::error::Alias copy failed for ${tag} after 3 attempts"
+                  exit 1
+                fi
+                echo "Alias copy ${tag} attempt ${copy_attempt} failed, retrying in 15s..."
+                sleep 15
+              done
             fi
           done
 
@@ -372,6 +387,7 @@ jobs:
         env:
           IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
           DIGEST: ${{ steps.push.outputs.digest }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -380,6 +396,14 @@ jobs:
             curl -sSL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
             chmod +x /usr/local/bin/cosign
           fi
+
+          # cosign pushes the signature blob to the registry, so it must be
+          # authenticated to GHCR. Without a login it fails with
+          # "blobs/uploads/ ... UNAUTHORIZED: unauthenticated" and the .sig
+          # tag is never published — which then blocks the main→stable
+          # promotion release gate ("One or more digests failed cosign
+          # verification") for the :testing tag.
+          echo "${GITHUB_TOKEN}" | cosign login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
           # Keyless OIDC signing via Fulcio (requires id-token: write)
           echo "::group::Sign container image"
