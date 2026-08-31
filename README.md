@@ -48,7 +48,9 @@ Use this prompt first to get your fork building:
 ```
 Bootstrap a new custom OS from @projectbluefin/finpilot. Name it after this repository. Use the `finpilot-onboarding` skill first, then:
 1. Rename `finpilot` in the 7 required files
-2. Enable GitHub Actions and set RENOVATE_TOKEN (repo + workflow scopes)
+2. Enable GitHub Actions and set RENOVATE_TOKEN (classic PAT with `repo` +
+   `workflow` scopes, or a fine-grained token with **Dependabot alerts:
+   Read-only** and **Contents: Read and write**)
 3. Configure branch protection for `main` with `validate` as a required status check
 4. Enable auto-merge
 5. Trigger the first green build on `main`
@@ -154,8 +156,7 @@ Important: Change `finpilot` to your repository name in these 7 files:
 
 Your first build will start automatically!
 
-Note: Image signing is enabled. Every publish build produces a keyless
-OIDC-signed image; see "Optional: Enable Image Signing" below for verification.
+Note: Images are signed automatically with keyless OIDC signing — no keys or secrets to configure. See "Image Signing" below for verification.
 
 ### 4. Enable Renovate (Required)
 
@@ -166,10 +167,12 @@ Renovate automatically updates dependencies and GitHub Actions (including workfl
 1. Go to GitHub → Settings → Developer settings → **Personal access tokens** → **Tokens (classic)**
 2. Click **Generate new token (classic)**
 3. Set a note like `renovate-finpilot`
-4. Select scopes: **`repo`** (full control) and **`workflow`** (update workflows)
+4. Select scopes: **`repo`** (full control) and **`workflow`** (update workflows). The `repo` scope also grants Renovate access to repository vulnerability alerts.
 5. Click **Generate token** and copy the value
 6. Go to your repository → Settings → Secrets and variables → Actions
 7. Add a new secret: **`RENOVATE_TOKEN`** (paste the token value)
+
+Alternatively, a fine-grained token works if it grants **Dependabot alerts: Read-only** and **Contents: Read and write**.
 8. Enable **Settings → General → Pull Requests → Allow auto-merge** so Renovate can merge low-risk updates after checks pass
 9. **Configure branch protection for `main`** (required for automerge to work):
    - Go to Settings → Branches → Add rule
@@ -236,20 +239,42 @@ All changes should be made via pull requests:
 3. Once checks pass, merge the PR
 4. Merging to `main` publishes a `:stable-testing` image; merging the auto-opened promotion PR to `stable` publishes `:stable`
 
-### 8. Deploy Your Image
+### 8. Promote to Stable
 
-Switch to your image:
+The template uses a two-branch release model:
+
+| Branch   | Image tag                        | Audience                       |
+| -------- | -------------------------------- | ------------------------------ |
+| `main`   | `:stable-testing` (+ `:testing`) | Testers and release candidates |
+| `stable` | `:stable`                        | Production systems             |
+
+When `stable` differs from `main`, the [`promote-main-to-stable`](.github/workflows/promote-main-to-stable.yml) workflow opens a squash promotion PR automatically, enables auto-merge, and runs a release gate that verifies image signatures on `:testing`. Direct pushes to `stable` are not part of the workflow; hotfixes made there are merged back into `main` by [`sync-stable-to-main`](.github/workflows/sync-stable-to-main.yml).
+
+For the automated promotion PR to open, your repository needs:
+
+- An **organization-owned repo with a `maintainers` team** — the workflow requests review from `<owner>/maintainers` when creating the PR. Personal-account forks can replace `.github/workflows/promote-main-to-stable.yml` with a local version that skips reviewer requests.
+- Branch protection on `stable`: **0 required approvals** means fully automatic promotion; **1 approval** means review, then auto-merge.
+- The release gate is advisory by default — make the promote workflow a required check on `stable` if a `release/blocked` result should block merging.
+
+### 9. Deploy Your Image
+
+Test the candidate from `main` first:
 
 ```bash
-sudo bootc switch ghcr.io/your-username/your-repo-name:stable
+sudo bootc switch --transport registry ghcr.io/your-username/your-repo-name:stable-testing
 sudo systemctl reboot
 ```
 
-## Optional: Enable Image Signing
+After merging the promotion PR, deploy production:
 
-Image signing is **enabled** in this image, using keyless OIDC signing via
-Cosign and GitHub Actions — no manual key generation, `cosign.key`, or
-`cosign.pub` files are required.
+```bash
+sudo bootc switch --transport registry ghcr.io/your-username/your-repo-name:stable
+sudo systemctl reboot
+```
+
+## Image Signing
+
+Images are signed automatically with **keyless OIDC signing** via Cosign and GitHub Actions. No manual key generation, `cosign.key`, or `cosign.pub` files are required — the signature is created using GitHub's OIDC token via Fulcio during each build.
 
 ### Why Sign Images?
 
@@ -257,17 +282,9 @@ Cosign and GitHub Actions — no manual key generation, `cosign.key`, or
 - Prevent tampering and supply chain attacks
 - Required for some enterprise/security-focused deployments
 - Industry best practice for production images
+- **Required for promotion**: the `main → stable` release gate verifies signatures on `:testing` and blocks promotion of unsigned images
 
-### Setup Instructions
-
-Signing is already enabled in `.github/workflows/build-image.yml` (the `Sign
-and publish` step, keyless mode). If you disabled it, re-enable by uncommenting
-that step — the `id-token: write` permission is already granted.
-
-Every publish build produces a signed image. The signature is created using
-GitHub's OIDC token via Fulcio.
-
-Verify your images with:
+### Verify a Signed Image
 
 ```bash
 cosign verify \
@@ -276,13 +293,17 @@ cosign verify \
   ghcr.io/dhodyn/osprey-2-stage:stable
 ```
 
+### Disabling Signing (Not Recommended)
+
+To disable, comment out the `Sign and publish` step in `.github/workflows/build-image.yml`. Be aware that unsigned images will fail the promotion release gate, so `main → stable` promotions will report `release/blocked` until signing is re-enabled.
+
 ## Love Your Image? Let's Go to Production
 
 Ready to take your custom OS to production? Enable these features for enhanced security, reliability, and performance:
 
 ### Production Checklist
 
-- [x] **Enable Image Signing** (Recommended)
+- [x] **Verify Image Signing**
   - Provides cryptographic verification of your images
   - Prevents tampering and ensures authenticity
   - Uses keyless OIDC signing via GitHub Actions — no keys or secrets required
