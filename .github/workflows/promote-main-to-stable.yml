@@ -4,15 +4,17 @@ name: Promote main to stable
 # Two-branch model: `main` is the testing branch (publishes :stable-testing),
 # `stable` is the production branch (publishes :stable). On every push to
 # `main` this workflow opens (or refreshes) a squash promotion PR from `main`
-# to `stable`; `stable` is protected by a ruleset, so the workflow enables
-# auto-merge on the PR using a PAT (PROMOTE_TOKEN). A PAT-performed merge is a
-# regular push event and DOES trigger the :stable build — unlike a GITHUB_TOKEN
-# `gh pr merge --auto`, whose events GitHub suppresses.
+# to `stable`; `stable` is protected by a ruleset. The `gate` job runs the
+# cosign release gate (reusable-release-gate outputs `ready`), and only once
+# it passes does the `merge` job squash-merge the PR with a PAT
+# (PROMOTE_TOKEN). A PAT-performed merge is a regular push event and DOES
+# trigger the :stable build — unlike a GITHUB_TOKEN merge (suppressed) or a
+# human merge racing an auto-merge (also suppressed, verified 2026-08-31).
 #
 # WHY NOT A MERGE QUEUE? GitHub's merge queue is org-owned-repo only; on a
 # personal-account repo the API rejects a `merge_queue` ruleset rule with 422
 # "Invalid rule 'merge_queue'", so the upstream enqueuePullRequest path cannot
-# run here (verified 2026-08-11). PAT auto-merge is the fork-side equivalent.
+# run here (verified 2026-08-11). PAT squash-merge is the fork-side equivalent.
 #
 # LOCAL IMPLEMENTATION — why not the factory reusable?
 # The shared reusable-promote-squash.yml hardcodes `--reviewer
@@ -57,6 +59,7 @@ jobs:
       pr_number: ${{ steps.upsert.outputs.pr_number }}
       pr_url: ${{ steps.upsert.outputs.pr_url }}
       promoted: ${{ steps.rebuild.outputs.promoted }}
+      blocked: ${{ steps.check-dnm.outputs.blocked }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -295,34 +298,22 @@ jobs:
             --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "✅ Posted validate=success on ${SHA}"
 
-      - name: Enable auto-merge on promotion PR
-        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
-          PR_NUMBER: ${{ steps.upsert.outputs.pr_number }}
+      - name: Report do-not-merge label
+        if: steps.upsert.outputs.pr_number != ''
+        id: report-dnm
         run: |
-          set -euo pipefail
-          # stable is protected by a ruleset (required check: validate, posted
-          # above). Merge with the PAT so the push fires the :stable build —
-          # GITHUB_TOKEN merges are suppressed by GitHub's recursion guard.
-          # Right after creation the PR's mergeability is still UNKNOWN and
-          # GitHub refuses to enable auto-merge; retry for ~40s before giving up.
-          for _ in $(seq 1 8); do
-            if gh pr merge "${PR_NUMBER}" \
-              --repo "${{ github.repository }}" \
-              --squash \
-              --auto 2>/dev/null; then
-              echo "✅ Auto-merge enabled on PR #${PR_NUMBER} (PAT)"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "⚠️  Auto-merge not available — maintainer merges when checks pass"
-
-      - name: Report do-not-merge label block
-        if: steps.upsert.outputs.pr_number != '' && steps.check-dnm.outputs.blocked == 'true'
-        run: |
-          echo "::notice::PR #${{ steps.upsert.outputs.pr_number }} has the do-not-merge label; auto-merge skipped."
+          # Surface the do-not-merge state to the merge job via job outputs.
+          if [[ "${{ steps.check-dnm.outputs.blocked }}" == "true" ]]; then
+            echo "::notice::PR #${{ steps.upsert.outputs.pr_number }} has the do-not-merge label; merge skipped."
+          fi
+      # NOTE: The actual merge no longer happens here. It moved to the
+      # dedicated `merge` job that runs strictly AFTER the `gate` job has
+      # passed (reusable-release-gate outputs `ready`). The merge is performed
+      # with the PAT (PROMOTE_TOKEN) so the resulting push to `stable` fires
+      # the :stable build — a GITHUB_TOKEN merge is suppressed by GitHub's
+      # recursion guard, and a human merge racing auto-merge also suppresses
+      # it (verified 2026-08-31: manual merge of #117 beat auto-merge by 1s
+      # and :stable silently went stale). Never merge here.
 
   gate:
     name: Release gate checks
@@ -342,6 +333,50 @@ jobs:
       e2e_suites: smoke
       e2e_image: ''
     secrets: inherit
+
+  # Merge ONLY after the release gate passes. The merge is done here with the
+  # PAT (PROMOTE_TOKEN) so the resulting push to `stable` fires the `:stable`
+  # build. Doing it in `promote` (before the gate) or relying on auto-merge
+  # lets a human beat the PAT to the merge, and GitHub suppresses the workflow
+  # run for that push, silently leaving `:stable` stale (verified 2026-08-31).
+  merge:
+    name: Merge promotion PR after gate passes
+    needs: [promote, gate]
+    if: >-
+      needs.promote.result == 'success' &&
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.ready == 'true' &&
+      needs.promote.outputs.promoted != 'false' &&
+      needs.promote.outputs.sync_needed == 'true' &&
+      needs.promote.outputs.pr_number != '' &&
+      needs.promote.outputs.blocked == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: write
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+    steps:
+      - name: Merge promotion PR (PAT)
+        env:
+          PR_NUMBER: ${{ needs.promote.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Squash-merge with the PAT. This is a normal push and fires the
+          # :stable build. Retry briefly because mergeability can lag.
+          for _ in $(seq 1 6); do
+            if gh pr merge "${PR_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --squash 2>/dev/null; then
+              echo "✅ Merged PR #${PR_NUMBER} (PAT) — :stable build will fire"
+              exit 0
+            fi
+            echo "Merge not yet possible for PR #${PR_NUMBER}, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Could not merge PR #${PR_NUMBER} after retries"
+          exit 1
 
   close-failure-issue:
     needs: [promote]
