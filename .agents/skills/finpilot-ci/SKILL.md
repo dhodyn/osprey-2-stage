@@ -36,7 +36,7 @@ description: >-
 | `build-image.yml`             | push main + stable, manual        | Publish `:stable-testing` (main) or `:stable` (stable)        |
 | `promote-main-to-stable.yml`  | push main, manual                 | Squash promotion PR `main` → `stable` (local impl)            |
 | `sync-stable-to-main.yml`     | push stable                       | Merge direct `stable` hotfixes back to `main` (usually no-op) |
-| `pr-validation.yml`           | PR → main                         | shellcheck + hadolint + pre-commit via `validate-pr`          |
+| `pr-validation.yml`           | PR → main + stable                  | shellcheck + hadolint + pre-commit via `validate-pr`          |
 | `renovate.yml`                | schedule 6h, push renovate config | Self-hosted Renovate runner                                   |
 | `clean.yml`                   | schedule weekly                   | Delete GHCR images older than 90 days                         |
 | `validate-brewfiles.yml`      | PR paths: `custom/brew/**`        | Homebrew Brewfile syntax check                                |
@@ -87,18 +87,19 @@ description: >-
   The `merge` job retries in a ~60s loop because the PR's mergeability can lag
   run start. It requires the required `validate` status (posted by the promote
   job) to be present before GitHub will merge.
-- **Promotion PRs no longer trigger the `pull_request`-gated validation workflows.**
+- **Promotion PRs are bot-authored and their `pull_request`-gated runs park.**
   Bot-authored promotion PRs (base `stable`, head `auto/promote-main-to-stable`)
-  were held at the platform approval gate, so `PR Validation` and
-  `enforce workflow labels` runs parked at 0 jobs and resolved to `failure`
-  once the PR auto-merged (cosmetic noise, not a real failure). Fixed 2026-08-31:
-  both workflows trigger on `branches: [main]` only. GitHub's `on.pull_request`
-  `branches:` filter matches the **base** branch, and `stable` is exclusively the
-  auto-promotion target (`main` carries every human/Renovate PR). Excluding
-  `stable` drops the parked runs while keeping validation for all feature PRs.
-  Do NOT "fix" the original parking via `pull_request_target` — that changes the
-  security model. The promotion posts the synthetic `validate=success` status,
-  which satisfies the ruleset's required check independently of any workflow.
+  are held at the platform approval gate, so `PR Validation` and
+  `enforce workflow labels` runs on them sit at `action_required` (0 jobs).
+  This is **harmless**: the promotion posts the synthetic `validate=success`
+  status to the PR head, which satisfies the ruleset's required check
+  independently of any workflow run. On the fork this was previously "fixed"
+  by restricting both workflows to `branches: [main]` (commit `d7e9d64`), but
+  that was reverted 2026-08-31 to match upstream byte-for-byte — upstream
+  lists `main` + `stable` and tolerates the parked runs as cosmetic noise. Keep
+  them aligned with upstream unless a parked run provably blocks a merge.
+  Do NOT "fix" the parking via `pull_request_target` — that changes the
+  security model.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
   (the factory-reusable-era title).
