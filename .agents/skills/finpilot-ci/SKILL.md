@@ -61,25 +61,32 @@ description: >-
 - **`gh` in `run:` steps needs the token.** Add `GH_TOKEN: ${{ github.token }}`
   at the job level or every `gh` call fails with "To use GitHub CLI in a GitHub
   Actions workflow, set the GH_TOKEN environment variable."
-- **`stable` is protected by a ruleset; promotion merges via PAT auto-merge.**
-  The promotion workflow enables `gh pr merge --squash --auto` with
-  `GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}` (a PAT). A PAT-performed merge is a
-  normal push and fires the `:stable` build. Do NOT enable auto-merge with the
-  runner token: GitHub suppresses workflow runs triggered by `GITHUB_TOKEN`
-  events, so a GITHUB_TOKEN merge to `stable` produces NO `Build and Push
-  Image` run and `:stable` silently goes stale (verified 2026-08-11: merged
-  commit had zero workflow runs).
+- **`stable` is protected by a ruleset; promotion merges gated on release
+  gate, via PAT.** `promote-main-to-stable.yml` has a dedicated `merge` job
+  that runs ONLY after the `gate` job passes
+  (`needs.gate.outputs.ready == 'true'` from reusable-release-gate), then runs
+  `gh pr merge --squash` (immediate, NOT `--auto`) with
+  `GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}`. A PAT-performed merge is a normal
+  push and fires the `:stable` build.
+- **DO NOT merge promotion PRs manually, and do NOT use auto-merge.** A
+  `GITHUB_TOKEN` merge is suppressed by GitHub's recursion guard (no build
+  fires, `:stable` goes stale — verified 2026-08-11). A **human** merge racing
+  an auto-merge enable is ALSO suppressed (verified 2026-08-31: manual merge
+  of #117 at 01:14:56 beat the auto-merge enable at 01:14:57 by ~1s and the
+  `:stable` build never fired; it stayed at `744f` while `:testing` was
+  `64be`). This is why the merge moved out of the `promote` job into a
+  gate-`needs` job. Let the workflow merge; never bump it manually.
 - **No merge queue on personal-account repos.** GitHub's merge queue is
   org-owned-repo only; the API rejects a `merge_queue` ruleset rule on a
   user-owned repo with `422 Invalid rule 'merge_queue'` (verified 2026-08-11),
   so the upstream `enqueuePullRequest` path (projectbluefin/bluefin
   `use_merge_queue: true`) cannot run here. Do not add a `merge_queue` rule to
-  the `stable` ruleset; PAT auto-merge is the fork-side delivery mechanism.
-- **Auto-merge races with mergeability.** Right after `gh pr
-  create` the PR's mergeability is `UNKNOWN`; retry the enable in a
-  loop (~60s). `gh pr merge --auto` also **requires a merge method flag**
-  (`--squash`) when non-interactive. Auto-merge stays blocked until `validate`
-  (the posted status) propagates.
+  the `stable` ruleset; PAT gated squash-merge is the fork-side delivery
+  mechanism.
+- **Immediate `gh pr merge --squash` (no `--auto`) still races mergeability.**
+  The `merge` job retries in a ~60s loop because the PR's mergeability can lag
+  run start. It requires the required `validate` status (posted by the promote
+  job) to be present before GitHub will merge.
 - **Bot-created PRs park PR-triggered runs in `action_required`.** The promotion
   PR is created with the runner token, so `PR Validation` and
   `enforce workflow labels` runs on it are held by the platform approval gate
@@ -146,10 +153,14 @@ Key rules:
   `cancel-in-progress: false`) so stable promotion inherits main's fresh
   cache layers instead of racing cold; queued runs must never cancel an
   in-progress production publish mid-push.
-- **Recovering a missed `:stable`:** re-run the failed run (`gh run rerun`)
-  once the cache works. Promotion PRs are already PAT-merged at that point;
-  nothing retries automatically. Re-runs use the original commit's workflow
-  definition — a fix merged afterwards does NOT apply to re-runs.
+- **Recovering a missed `:stable`:** if the `:stable` build did not fire or
+  failed (e.g. a transient `StatusCode: 400` on `zstd:chunked` layer push, or
+  a suppressed merge), the reliable recovery is a **manual
+  `workflow_dispatch` on the `stable` branch** (`gh workflow run "Build and
+  Push Image" --ref stable`) once `main` and `stable` trees are identical.
+  It rebuilds and republishes all `:stable`/`stable-daily*` aliases with
+  workflow credentials. Re-runs (`gh run rerun`) use the original commit's
+  workflow definition — a fix merged afterwards does NOT apply to re-runs.
 - **Renaming the image/repo resets the registry cache to empty** (new GHCR
   repo), and package visibility flips (public/private) change whether the
   anonymous `list-tags` gate passes at all — check both when builds suddenly
