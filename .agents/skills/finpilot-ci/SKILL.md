@@ -87,13 +87,18 @@ description: >-
   The `merge` job retries in a ~60s loop because the PR's mergeability can lag
   run start. It requires the required `validate` status (posted by the promote
   job) to be present before GitHub will merge.
-- **Bot-created PRs park PR-triggered runs in `action_required`.** The promotion
-  PR is created with the runner token, so `PR Validation` and
-  `enforce workflow labels` runs on it are held by the platform approval gate
-  (0 jobs, `conclusion: action_required`) until a maintainer approves. Harmless
-  here: the promotion posts the synthetic `validate=success` status, which
-  satisfies the ruleset's required check. Do NOT switch these to
-  `pull_request_target` to "fix" it — that changes the security model.
+- **Promotion PRs no longer trigger the `pull_request`-gated validation workflows.**
+  Bot-authored promotion PRs (base `stable`, head `auto/promote-main-to-stable`)
+  were held at the platform approval gate, so `PR Validation` and
+  `enforce workflow labels` runs parked at 0 jobs and resolved to `failure`
+  once the PR auto-merged (cosmetic noise, not a real failure). Fixed 2026-08-31:
+  both workflows trigger on `branches: [main]` only. GitHub's `on.pull_request`
+  `branches:` filter matches the **base** branch, and `stable` is exclusively the
+  auto-promotion target (`main` carries every human/Renovate PR). Excluding
+  `stable` drops the parked runs while keeping validation for all feature PRs.
+  Do NOT "fix" the original parking via `pull_request_target` — that changes the
+  security model. The promotion posts the synthetic `validate=success` status,
+  which satisfies the ruleset's required check independently of any workflow.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
   (the factory-reusable-era title).
