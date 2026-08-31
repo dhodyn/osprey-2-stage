@@ -99,13 +99,22 @@ description: >-
   `validate=success` status that satisfies the required check), but they mark
   every automated promotion as failed CI noise.
   **MAINTAINED FIX: the fork restricts `pr-validation.yml` and
-  `label-enforcement.yml` to `branches: [main]`** (commit `d7e9d64`, kept
-  2026-08-31) so the promotion PR never triggers them and the noise is
-  dropped. `stable` only ever receives the auto-promotion PR, which posts its
-  own `validate` status, so restricting to `main` loses no validation.
-  Upstream lists `main` + `stable` and tolerates the noise — this is a
-  deliberate, documented fork divergence. Do NOT "fix" the parking via
-  `pull_request_target` — that changes the security model.
+  `label-enforcement.yml` to `branches: [main]`** — commit `d7e9d64` (merged
+  as part of PR #132, squash commit `8d4cb3d`, kept 2026-08-31) — so the
+  promotion PR never triggers them and the noise is dropped. `stable` only
+  ever receives the auto-promotion PR, which posts its own `validate` status,
+  so restricting to `main` loses no validation. Upstream lists `main` +
+  `stable` and tolerates the noise — this is a **deliberate, documented fork
+  divergence**. Do NOT "fix" the parking via `pull_request_target` — that
+  changes the security model.
+
+  > **Upstream-comparison note (2026-08-31).** Do NOT re-align these two files
+  > to upstream (`main` + `stable`) just because upstream's diff shows it. That
+  > exact change was tried (PR #126, commit `4d384d7`) and its parked-run noise
+  > re-verified in the wild on promotion PR #127 (three 0-job `failure` runs),
+  > then deliberately revoked (PR #132). This is the fork's one intentional
+  > quickcheck divergence in CI. When comparing to upstream, treat this
+  > difference as expected and leave it as-is.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
   (the factory-reusable-era title).
