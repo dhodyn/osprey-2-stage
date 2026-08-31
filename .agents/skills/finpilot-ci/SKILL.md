@@ -89,17 +89,21 @@ description: >-
   job) to be present before GitHub will merge.
 - **Promotion PRs are bot-authored and their `pull_request`-gated runs park.**
   Bot-authored promotion PRs (base `stable`, head `auto/promote-main-to-stable`)
-  are held at the platform approval gate, so `PR Validation` and
-  `enforce workflow labels` runs on them sit at `action_required` (0 jobs).
-  This is **harmless**: the promotion posts the synthetic `validate=success`
-  status to the PR head, which satisfies the ruleset's required check
-  independently of any workflow run. On the fork this was previously "fixed"
-  by restricting both workflows to `branches: [main]` (commit `d7e9d64`), but
-  that was reverted 2026-08-31 to match upstream byte-for-byte — upstream
-  lists `main` + `stable` and tolerates the parked runs as cosmetic noise. Keep
-  them aligned with upstream unless a parked run provably blocks a merge.
-  Do NOT "fix" the parking via `pull_request_target` — that changes the
-  security model.
+  are held at the platform approval gate, so every `pull_request`-triggered
+  workflow (`pr-validation`, `enforce workflow labels`, and any path-gated
+  validators) fires on the head and then resolves to **0-job `failure`** once
+  the PR auto-merges (nobody clicks the approval gate). **Empirically verified
+  2026-08-31 (promotion PR #127 after re-introducing `stable`): three
+  `pull_request` runs concluded `failure` with zero jobs, yet the PR still
+  auto-merged in ~31s** — so the failed runs are real but **non-blocking**.
+  The promotion posts the synthetic `validate=success` status to the head,
+  which satisfies the ruleset's required check independently of any workflow
+  run. Upstream lists `main` + `stable` and lives with
+  the noise. The fork briefly "fixed" it by restricting the two workflows to
+  `branches: [main]` (commit `d7e9d64`), reverted 2026-08-31 to match upstream
+  byte-for-byte. Keep them aligned with upstream — the noise is acceptable;
+  only diverge if a parked run provably blocks a merge. Do NOT "fix" the
+  parking via `pull_request_target` — that changes the security model.
 - The conflict-issue auto-close must match **both** historical titles:
   `ci: main→stable promotion conflict` and `ci: testing→main promotion conflict`
   (the factory-reusable-era title).
