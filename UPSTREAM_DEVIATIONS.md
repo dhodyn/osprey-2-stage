@@ -19,11 +19,12 @@ divergence beyond the fork's own identity.
 ## Catch-up Pointer
 
 - **Upstream commit last fully scanned:**
-  `0d02b8ec2da31961241417413cc6f5989cec0402`
+  `a69e771579e941fb59c5f58d463bceeec46723c7` (2026-09-01)
 - **Latest upstream `main` HEAD observed:**
   `a69e771579e941fb59c5f58d463bceeec46723c7` (2026-09-01)
 
-Upstream is **42 commits** ahead of the fork point. **Before relying on any
+Fork point (creation) is `0d02b8ec2da31961241417413cc6f5989cec0402`; the
+scan range is now fully caught up to `a69e771…`. **Before relying on any
 claim here, re-fetch upstream (`git fetch upstream main`) and re-verify each
 entry against upstream's current content.**
 
@@ -95,7 +96,8 @@ and must not be re-applied:
 
 1. `git fetch upstream main`
 2. Read this register; note the catch-up pointer.
-3. Scan `0d02b8ec..upstream/main` for upstream changes.
+3. Scan from the catch-up pointer, not from the fork origin, for upstream
+   changes: `git log --oneline <CATCH_UP_POINTER>..upstream/main`
 4. Adopt upstream's content for any exception whose removal trigger has
    landed; update the register.
 5. Leave the register truthful to the working tree, with each surviving

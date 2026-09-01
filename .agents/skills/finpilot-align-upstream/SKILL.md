@@ -32,15 +32,60 @@ drift further.
    the evidence. Do not ask the user for direction (or for forgiveness) in
    lieu of doing the verified work. Hiding behind a question when the answer
    is already known is a way of dodging the task. Demonstrate, then confirm.
+7. **Do NOT keep a permanent `upstream` git remote.** Add it only to compare
+   with upstream, then remove it. A persistent `upstream` (name or URL to
+   `projectbluefin/finpilot`) makes `gh` resolve the base repository to
+   **upstream** instead of the fork, so `gh pr create --base main` fails with
+   `No commits between projectbluefin:main and ...`. `gh` keys off the git
+   remotes it sees, so never leave upstream installed when creating/merging
+   PRs. Sequence: add upstream → fetch/compare → remove upstream → then do any
+   git/gh work against the fork.
 
 ## Session Start
 
-1. `git fetch upstream main`
-2. Read `UPSTREAM_DEVIATIONS.md` (fork-local, maintained register).
-3. Note the catch-up pointer (last upstream commit scanned).
-4. Scan `0d02b8ec..upstream/main` for upstream changes.
-5. Adopt upstream's content for any exception whose removal trigger has landed;
+1. Add the upstream remote transiently: `git remote add upstream
+   https://github.com/projectbluefin/finpilot.git` (if not already present).
+2. `git fetch upstream main`
+3. Read `UPSTREAM_DEVIATIONS.md` (fork-local, maintained register).
+4. Note the catch-up pointer (last upstream commit fully scanned) and its
+   value — do not re-scan from the fork point, only from this pointer.
+5. Scan from the catch-up pointer, not from the fork origin. Use the current
+   catch-up value from `UPSTREAM_DEVIATIONS.md`:
+   `git log --oneline <CATCH_UP_POINTER>..upstream/main`
+   (e.g. if the pointer is `abc123`, run `git log --oneline abc123..upstream/main`,
+   **not** `0d02b8ec..upstream/main` every time).
+6. Adopt upstream's content for any exception whose removal trigger has landed;
    update the register.
+7. **Remove the transient remote holds nothing more is needed** —
+   `git remote remove upstream` — BEFORE any `git push`, `gh pr create`,
+   `gh pr merge`, or branch-retry, so `gh` resolves the fork, not upstream.
+
+## Bug Report / Troubleshooting in a Fresh Session
+
+When a user reports a problem or bug, do NOT guess a fix or default to
+"change whatever seems wrong." The fork must stay byte-identical to upstream
+except for recorded exceptions. Procedure:
+
+1. **Orient from persisted state, not memory.** Read `UPSTREAM_DEVIATIONS.md`
+   — fork point, catch-up pointer, exception register.
+2. **Find the file involved.** Identify which path the bug touches.
+3. **Is that file a recorded exception?** Check the register table. If the file
+   is not in the register, it must be byte-identical to upstream, so the bug is
+   **upstream's** bug, not a fork deviation.
+4. **Verify against live upstream** (`git diff upstream/main -- <file>`, the
+   one correct command). If it is byte-identical, do NOT patch it in the fork:
+   that would silently adopt a change upstream does not have. Report to the user
+   that the behavior comes from upstream, not from this fork.
+5. **If the file IS a recorded exception:** fix it **within the exception's
+   justification only** — never expand a deviation; keep the change minimal and
+   consistent with the recorded removal trigger.
+6. **If no exception covers it and the user still needs a fix:** the correct
+   answer per rule 1 is to **not** modify upstream-owned content. The fork
+   waits for upstream; this is not a fork bug to patch. Do not invent a workaround
+   that diverges from upstream.
+
+Never let a user-reported bug be an excuse to break byte-identical alignment
+into an un-recorded deviation.
 
 ## How to Compare (the one correct command)
 
@@ -78,3 +123,6 @@ authoritative command; do not pile on more experimental checks.
       asking the obvious question or dodging with a question?
 - [ ] Did I use `git diff upstream/main --` (the one correct command) and not
       an ad-hoc `--no-index`/`<(git show)` comparison loop?
+- [ ] For a reported bug: did I check whether the file is a recorded exception,
+      verify it against upstream, and avoid un-recorded divergence? (Bug Report
+      section)
