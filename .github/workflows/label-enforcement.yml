@@ -4,13 +4,6 @@ on:
   issues:
     types: [opened, edited, labeled, unlabeled]
   pull_request:
-    # Only PRs to `main`. The auto-promotion PR targets `stable` (head
-    # `auto/promote-main-to-stable`) and is authored by github-actions[bot],
-    # so GitHub parks its pull_request-triggered runs and resolves them to
-    # 0-job `failure` on auto-merge. See pr-validation.yml for the rationale
-    # (verified 2026-08-31: promotion PR #127).
-    branches:
-      - main
     types: [opened, reopened, synchronize, labeled, unlabeled]
 
 permissions:
