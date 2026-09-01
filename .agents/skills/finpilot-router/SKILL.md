@@ -30,11 +30,11 @@ description: >-
 | I need to…                                     | Load                                      |
 | ---------------------------------------------- | ----------------------------------------- |
 | Bootstrap a new fork                           | `finpilot-onboarding`                  |
+| Set up promotion / stable branch / release gate | `finpilot-onboarding`, `finpilot-ci`   |
 | Add/remove a package                           | `finpilot-packages`                    |
 | Change Brewfiles, Flatpaks, or ujust           | `finpilot-custom`                      |
 | Change Containerfile, Justfile, or build/\*.sh | `finpilot-build`                       |
 | Fix CI or Renovate                             | `finpilot-ci` / `finpilot-maintain`    |
-| Compare fork to upstream / reconcile divergences | `finpilot-ci` — adopt upstream fixes, drop fork workarounds when upstream resolves them (see the parked-run workaround gate) |
 | Open a PR                                      | `finpilot-pr-checklist`                |
 | Debug a build or deploy failure                | `finpilot-troubleshooting`             |
 | Follow a worked example                        | `finpilot-examples`                    |
