@@ -87,6 +87,36 @@ except for recorded exceptions. Procedure:
 Never let a user-reported bug be an excuse to break byte-identical alignment
 into an un-recorded deviation.
 
+## Answering PR / Run Questions (thorough on the FIRST pass)
+
+When asked "will this merge?", "is this auto-merging?", or "what is this run?",
+do the complete investigation in one go — never answer from partial data.
+Incomplete answers cause the user to re-ask with the evidence you missed.
+
+**Gather ALL of these in parallel the first time:**
+1. `gh pr view <n> --repo <fork> --json body,labels,reviewRequests,mergeStateStatus,mergeable,autoMergeRequest,state`
+2. `gh pr checks <n> --repo <fork>` — full check list with states
+3. `gh api .../branches/stable/protection` — required checks, required reviews,
+   merge-queue, rulesets
+4. The originating workflow run (promote/build) — `gh run view <id> --log` for
+   the actual step output, NOT just its green/red conclusion
+5. `gh api .../pulls/<n>/requested_reviewers`
+
+**Cross-check the PR BODY against facts.** The promotion PR body is generated
+from upstream shared templates (`render_pr_body.py`, `render_gate_section.py`)
+and may contain boilerplate that does NOT match this fork: references to
+`@projectbluefin/maintainers`, "2 approvals", "Auto-merge scheduled for
+Tuesday/Thursday 04:00 UTC (bluefin/dakota/bluefin-lts)", or desktop-screenshot
+URLs pointing at `projectbluefin.github.io`. Verify each claim against the
+fork's own branch protection, reviewers (empty), auto-merge state (null), and
+required checks. Report the mismatch explicitly rather than repeating upstream
+boilerplate as if it were the fork's true state.
+
+**Never merge-opinion without evidence:** state what actually happens
+(required check `validate` passes; `enforce` parked-run is not required),
+what does NOT happen (auto-merge is not enabled; no approvals required), and
+what the user must do (merge manually with squash).
+
 ## How to Compare (the one correct command)
 
 To list every file that differs between the **working tree** and upstream, use:
@@ -126,3 +156,6 @@ authoritative command; do not pile on more experimental checks.
 - [ ] For a reported bug: did I check whether the file is a recorded exception,
       verify it against upstream, and avoid un-recorded divergence? (Bug Report
       section)
+- [ ] For a PR/run question: did I gather body, checks, protection, reviewers,
+      and workflow logs ALL at once, and cross-check any boilerplate in the PR
+      body against fork facts before answering? (Answering PR/Run Questions)
