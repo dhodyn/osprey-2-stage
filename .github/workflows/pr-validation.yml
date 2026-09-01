@@ -1,16 +1,10 @@
 name: PR Validation
 
-# Only PRs to `main` are validated here. The auto-promotion PR targets
-# `stable` (head `auto/promote-main-to-stable`) and is authored by
-# github-actions[bot], so GitHub parks every pull_request-triggered run on it
-# and resolves them to 0-job `failure` once the PR auto-merges (verified
-# 2026-08-31: three 0-job `failure` runs on promotion PR #127). Restricting to
-# `main` drops that noise; `stable` only ever receives the auto-promotion PR,
-# which posts its own synthetic `validate` status (verified 2026-08-31).
 on:
   pull_request:
     branches:
       - main
+      - stable
   merge_group:
 
 concurrency:

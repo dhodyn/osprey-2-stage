@@ -16,37 +16,12 @@ links lives in `.agents/skills/README.md`.
   and pushes publish `:stable-testing` images.
 - `stable` is the **production branch** — pushes publish `:stable` images.
 - Promotion is `main` → `stable` via squash PRs opened by
-  `.github/workflows/promote-main-to-stable.yml`. The factory reusable
-  `reusable-promote-squash.yml` hardcodes `--reviewer <owner>/maintainers`,
-  which cannot resolve on personal-account forks (teams are org-only), so this
-  repo implements the squash promotion locally and omits the reviewer request.
+  `.github/workflows/promote-main-to-stable.yml`, a thin caller of the factory
+  reusable `projectbluefin/actions/.github/workflows/reusable-promote-squash.yml`.
   `sync-stable-to-main.yml` (`reusable-sync-branches.yml`) merges any direct
   `stable` hotfixes back into `main`.
-- `stable` is protected by a **ruleset** (`stable — release protection`,
-  ruleset id 20697458: `pull_request` squash-only, required status check
-  `validate`, `non_fast_forward`, `deletion`). The promotion workflow enables
-  auto-merge on the PR with a **PAT** (`PROMOTE_TOKEN` secret); a PAT-performed
-  merge is a normal push and DOES trigger the `:stable` build. Do NOT enable
-  auto-merge with the runner token — GitHub suppresses workflow runs triggered
-  by `GITHUB_TOKEN` events, so `:stable` silently goes stale (verified
-  2026-08-11).
-- **No merge queue on this repo.** GitHub's merge queue is org-owned-repo
-  only; on a personal-account repo the API rejects a `merge_queue` ruleset
-  rule with `422 Invalid rule 'merge_queue'` (verified 2026-08-11), so the
-  upstream `enqueuePullRequest` path cannot run here. PAT auto-merge is the
-  fork-side delivery-mechanism deviation (approved) — not a return to
-  pull[bot]; upstream the reviewer bug in `projectbluefin/actions` (see header
-  comment in the workflow). Do not add `.github/pull.yml`.
-- **CI-validation workaround (acceptable only until upstream fixes it).**
-  `pr-validation.yml` and `label-enforcement.yml` restrict to `branches:
-  [main]` because upstream still lists `stable`, and bot-authored auto-promotion
-  PRs park `pull_request` runs on `stable` at the platform approval gate, which
-  resolve to 0-job `failure` on auto-merge (verified 2026-08-31: three 0-job
-  failures on promotion PR #127). This is a workaround, NOT a blessed permanent
-  divergence. **Upstream is truth:** keep it only while upstream has the bug.
-  On every upstream comparison, check whether upstream fixed the parked-run
-  noise (dropped `stable`, or otherwise). If upstream fixed it, adopt upstream's
-  fix and remove the fork restriction (per file) (commits `d7e9d64` / `8d4cb3d`).
+- Decision record: the factory reusable workflow was chosen over the external
+  pull[bot] app (issues #235/#237). Do not add `.github/pull.yml`.
 - Never commit directly to `stable`; it receives only promotion PRs.
 
 ## Release Workflow
@@ -54,11 +29,8 @@ links lives in `.agents/skills/README.md`.
 1. Open changes against `main`.
 2. Merge only after required validation and image build checks pass.
 3. Test `ghcr.io/OWNER/IMAGE:stable-testing`.
-4. Review the auto-opened promotion PR from `main` to `stable`
-   (`release/ready` label = cosign gate passed).
-5. The promotion workflow auto-merges the PR with a PAT and publishes
-   `ghcr.io/OWNER/IMAGE:stable`. Add the `do-not-merge` label to the promotion
-   PR to block auto-merge while testing.
+4. Review the auto-opened promotion PR from `main` to `stable`.
+5. Merge the promotion to publish `ghcr.io/OWNER/IMAGE:stable`.
 
 | Branch   | Image tag         | Audience                       |
 | -------- | ----------------- | ------------------------------ |
@@ -166,6 +138,6 @@ Before marking work done:
 - [ ] Updated or created the relevant skill file?
 - [ ] Included that learning in this PR?
 
-**Last Updated**: 2026-08-31
+**Last Updated**: 2026-08-21
 **Template Version**: finpilot (Agent UX Overhaul)
 **Maintainer**: Universal Blue Community
