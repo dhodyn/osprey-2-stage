@@ -119,7 +119,16 @@ what the user must do (merge manually with squash).
 
 ## How to Compare (the one correct command)
 
-To list every file that differs between the **working tree** and upstream, use:
+The register tracks the fork's **committed remote `main`** (`origin/main`)
+against upstream, so the authoritative comparison is:
+
+```sh
+git diff --name-only upstream/main origin/main
+```
+
+Every file listed is, by definition, either a registered exception or a
+fork-local file (e.g. `UPSTREAM_DEVIATIONS.md`); the register's table must
+match this list 1:1. To also see the current-worktree state, use:
 
 ```sh
 git diff --name-only upstream/main
@@ -133,6 +142,10 @@ diff count (this happened once: a simple "what differs" question produced a
 false "26 files / 16 reverted" panic). One correct command beats many ad-hoc
 ones. If a result contradicts your earlier findings, stop and rerun the single
 authoritative command; do not pile on more experimental checks.
+
+The `upstream` remote is **transient**: add it when comparing, remove it before
+any `git`/`gh` work on the fork, because a persistent `upstream` remote makes
+`gh` resolve the base repo to `projectbluefin/finpilot` instead of the fork.
 
 ## Ground Truth Anchors
 

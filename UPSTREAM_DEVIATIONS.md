@@ -30,8 +30,10 @@ entry against upstream's current content.**
 
 ## State of This Register
 
-This register reflects the **working tree**, not the historical or committed
-state. The working tree is byte-identical to upstream except for the
+This register reflects **`origin/main` — the fork's committed remote `main`** —
+compared against `upstream/main`. All fork work is merged to `main`, so the
+register documents the deliberate differences that live on the fork's `main`
+branch. The committed tree is byte-identical to `upstream/main` except for the
 exceptions in the table below. Deviations previously present (a
 `branches: [main]` restriction on two validation workflows, and a large local
 promotion workflow) have been **reverted to upstream** and are recorded in
@@ -54,10 +56,10 @@ Appendix: History for accountability only — they are not current exceptions.
    correct action is already determined by these rules, take it and show the
    evidence. Do not ask the user for direction (or for forgiveness) in lieu of
    doing the verified work. Demonstrate, then confirm.
-4. **Byte-identical is the resting state.** Except for the exceptions below,
+5. **Byte-identical is the resting state.** Except for the exceptions below,
    every file matches upstream exactly.
 
-## Exception Register (current, working-tree)
+## Exception Register (current, `origin/main`)
 
 | File | Difference (vs upstream) | Class | Removal trigger |
 |------|--------------------------|-------|-----------------|
@@ -100,5 +102,5 @@ and must not be re-applied:
    changes: `git log --oneline <CATCH_UP_POINTER>..upstream/main`
 4. Adopt upstream's content for any exception whose removal trigger has
    landed; update the register.
-5. Leave the register truthful to the working tree, with each surviving
-   exception verified and explained.
+5. Leave the register truthful to the **`origin/main` vs `upstream/main`**
+   state, with each surviving exception verified and explained.
