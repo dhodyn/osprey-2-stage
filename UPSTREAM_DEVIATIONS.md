@@ -19,14 +19,42 @@ divergence beyond the fork's own identity.
 ## Catch-up Pointer
 
 - **Upstream commit last fully scanned:**
-  `a69e771579e941fb59c5f58d463bceeec46723c7` (2026-09-01)
+  `be4b0ebe7b493a18a20d27539b4e3eba23f093c1` (2026-09-18)
 - **Latest upstream `main` HEAD observed:**
-  `a69e771579e941fb59c5f58d463bceeec46723c7` (2026-09-01)
+  `be4b0ebe7b493a18a20d27539b4e3eba23f093c1` (2026-09-18)
 
-Fork point (creation) is `0d02b8ec2da31961241417413cc6f5989cec0402`; the
-scan range is now fully caught up to `a69e771…`. **Before relying on any
-claim here, re-fetch upstream (`git fetch upstream main`) and re-verify each
-entry against upstream's current content.**
+Fork point (creation) is `0d02b8ec2da31961241417413cc6f5989cec0402`. **Before
+relying on any claim here, re-fetch upstream (`git fetch upstream main`) and
+re-verify each entry against upstream's current content.**
+
+## Catch-up Notes (2026-09-18)
+
+Adopted roughly 150 upstream commits since the previous pointer `a69e771`:
+
+- **Removed** the `iso/rclone/` subsystem and its `.dockerignore` entry
+  (unrecorded deviation — upstream dropped it).
+- **Restored static Brewfile validation** (`.pre-commit-config.yaml`,
+  `validate-brewfiles.yml`, new `build/validate-brewfiles.sh`); the fork's
+  inline `brew bundle check` was left over from before upstream's #288/#323
+  security refactor.
+- **Dropped `secrets: inherit`** from `label-enforcement.yml` (upstream #318).
+- **Restored `set -euo pipefail`** in `install-jetbrains-toolbox`
+  (upstream #315 checksum gate).
+- **Adopted** new files: `.shellcheck-scope`, `build/validate-flatpaks.sh`,
+  `approve-trusted-promotion-runs.yml`, `unit-tests.yml`, `tests/unit/*.bats`.
+- **Adopted upstream's `clean.yml`** which derives the cleanup package name
+  from the repository name — this makes the fork's former hardcoded
+  `packages: osprey-2-stage` row obsolete (exception removed).
+- **Adopted upstream's rewritten `validate-brewfiles.yml`** (digest exception
+  removed; workflow no longer differs).
+- **Adopted upstream's `renovate.json`**, including removal of the
+  human-review rule for GitHub Actions updates (per upstream's decision;
+  automerges action digest bumps). Not an exception.
+- Containerfile digest pins re-aligned to upstream (Renovate churn is expected
+  to drift again — digest pins are never recorded as differing until verified).
+- Adopted upstream's `AGENTS.md` (re-adds the #281 release-gate "Known gap"
+  paragraph) and `.agents/skills/finpilot-templates/SKILL.md` (upstream's
+  worked-example wording). These are no longer deviations.
 
 ## State of This Register
 
@@ -63,7 +91,7 @@ Appendix: History for accountability only — they are not current exceptions.
 
 | File | Difference (vs upstream) | Class | Removal trigger |
 |------|--------------------------|-------|-----------------|
-| `Containerfile` | `Name: osprey-2-stage`; `IMAGE_NAME=osprey-2-stage`; `IMAGE_VENDOR=dhodyn`; 3 `FROM` digest pins | Identity + Renovate digest churn | Identity: never. Digests: Renovate converges |
+| `Containerfile` | `Name: osprey-2-stage`; `IMAGE_NAME=osprey-2-stage`; `IMAGE_VENDOR=dhodyn` | Identity | Never |
 | `Justfile` | `IMAGE_NAME := "osprey-2-stage"` | Identity | Never |
 | `README.md` | Title, raptor section, cosign URLs, checklist state | Identity | Never |
 | `artifacthub-repo.yml` | `repositoryID: osprey-2-stage` | Identity | Never |
@@ -71,11 +99,21 @@ Appendix: History for accountability only — they are not current exceptions.
 | `custom/ujust/README.md` | `localhost/osprey-2-stage:stable` | Identity | Never |
 | `custom/flatpaks/default.preinstall` | Active Spotify + Thunderbird | Intended fork content | Never (intended) |
 | `custom/brew/default.Brewfile` | Active `neovim` + `helix` | Intended fork content | Never (intended) |
-| `.github/workflows/clean.yml` | `packages: osprey-2-stage` | Identity | Never |
-| `.github/workflows/validate-brewfiles.yml` | `setup-homebrew@<sha>` digest bump | Renovate digest churn | Renovate converges |
 
 > **Verification note:** every row here must be re-checked against current
 > upstream before each use. Re-fetch and `git diff` before relying on it.
+> The two previous rows for `clean.yml` and `validate-brewfiles.yml` were
+> removed in the 2026-09-18 catch-up because those files are now
+> byte-identical to upstream.
+
+## Fork-local files (not exceptions)
+
+These exist only in the fork, so `git diff upstream/main origin/main` lists
+them but they are **not** deviations and have no removal trigger:
+
+- `UPSTREAM_DEVIATIONS.md` — this register.
+- `.agents/skills/finpilot-align-upstream/SKILL.md` — fork-local align skill
+  (upstream ships no such file).
 
 ## Appendix: History (reverted, not current)
 

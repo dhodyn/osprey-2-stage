@@ -23,6 +23,32 @@ check:
     echo "Checking syntax: Justfile"
     just --unstable --fmt --check -f Justfile
 
+# Run unit tests for build scripts
+[group('Just')]
+test-unit:
+    #!/usr/bin/bash
+    set -euo pipefail
+    if ! command -v bats &>/dev/null; then
+        echo "bats not found — install with: sudo apt-get install bats  OR  npm install -g bats"
+        exit 1
+    fi
+    echo "Running unit tests..."
+    bats tests/unit/
+
+# Validate Brewfiles without evaluating them as Ruby (see #288)
+[group('Just')]
+validate-brewfiles:
+    #!/usr/bin/bash
+    set -euo pipefail
+    bash build/validate-brewfiles.sh
+
+# Validate flatpak preinstall files against flathub (Branch= key + app existence)
+[group('Just')]
+validate-flatpaks:
+    #!/usr/bin/bash
+    set -euo pipefail
+    bash build/validate-flatpaks.sh
+
 # Fix Just Syntax
 [group('Just')]
 fix:
@@ -39,12 +65,11 @@ fix:
 clean:
     #!/usr/bin/bash
     set -eoux pipefail
-    touch _build
-    find *_build* -exec rm -rf {} \;
+    find . -maxdepth 1 -name '*_build*' -prune -exec rm -rf {} +
     rm -f previous.manifest.json
     rm -f changelog.md
     rm -f output.env
-    rm -f output/
+    rm -rf output/
 
 # Sudo Clean Repo
 [group('Utility')]
@@ -110,11 +135,13 @@ build $target_image=IMAGE_NAME $tag=DEFAULT_TAG:
 
     # Avoid tag collisions when rebuilding on the same day
     if command -v skopeo &>/dev/null; then
-        skopeo list-tags "docker://ghcr.io/${IMAGE_VENDOR:-${REPO_ORG}}/${target_image}" >/tmp/repotags.json 2>/dev/null \
-            || echo '{"Tags":[]}' >/tmp/repotags.json
-        if [[ $(jq "any(.Tags[]; contains(\"${ver}\"))" /tmp/repotags.json) == "true" ]]; then
+        repotags=$(mktemp -t repotags.XXXXXXXX.json) || { echo "ERROR: mktemp failed to create tag-list temp file"; exit 1; }
+        trap 'rm -f "${repotags}"' EXIT
+        skopeo list-tags "docker://ghcr.io/${IMAGE_VENDOR:-${REPO_ORG}}/${target_image}" >"${repotags}" 2>/dev/null \
+            || echo '{"Tags":[]}' >"${repotags}"
+        if [[ $(jq "any(.Tags[]; contains(\"${ver}\"))" "${repotags}") == "true" ]]; then
             POINT=1
-            while [[ $(jq "any(.Tags[]; contains(\"${ver}.${POINT}\"))" /tmp/repotags.json) == "true" ]]; do
+            while [[ $(jq "any(.Tags[]; contains(\"${ver}.${POINT}\"))" "${repotags}") == "true" ]]; do
                 ((POINT++))
             done
             ver="${ver}.${POINT}"
@@ -130,7 +157,7 @@ build $target_image=IMAGE_NAME $tag=DEFAULT_TAG:
 
     # Image identity ARGs - these define how bootc/ublue ecosystem recognizes the image
     # Override via env vars: IMAGE_NAME, IMAGE_VENDOR, UBLUE_IMAGE_TAG
-    BUILD_ARGS+=("--build-arg" "IMAGE_NAME=${IMAGE_NAME:-${target_image}}")
+    BUILD_ARGS+=("--build-arg" "IMAGE_NAME=${target_image}")
     BUILD_ARGS+=("--build-arg" "IMAGE_VENDOR=${IMAGE_VENDOR:-${REPO_ORG}}")
     BUILD_ARGS+=("--build-arg" "UBLUE_IMAGE_TAG=${UBLUE_IMAGE_TAG:-${tag}}")
 
@@ -393,17 +420,42 @@ spawn-vm rebuild="0" type="qcow2" ram="6G":
       --vsock=false --pass-ssh-key=false \
       -i ./output/**/*.{{ type }}
 
-# Runs shell check on all Bash scripts
+# Expand .shellcheck-scope into the list of shell scripts under lint
+[private]
+shell-sources:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s globstar nullglob
+    [[ -f .shellcheck-scope ]] || { echo ".shellcheck-scope is missing" >&2; exit 1; }
+    while IFS= read -r pattern || [[ -n "$pattern" ]]; do
+        pattern="${pattern%%#*}"
+        pattern="${pattern#"${pattern%%[![:space:]]*}"}"
+        pattern="${pattern%"${pattern##*[![:space:]]}"}"
+        [[ -z "$pattern" ]] && continue
+        for f in $pattern; do
+            [[ -f "$f" ]] && printf '%s\n' "$f"
+        done
+    done < .shellcheck-scope
+
+# Runs shell check on the scripts declared in .shellcheck-scope
 lint:
     #!/usr/bin/env bash
-    set -eoux pipefail
+    set -euo pipefail
     # Check if shellcheck is installed
     if ! command -v shellcheck &> /dev/null; then
         echo "shellcheck could not be found. Please install it."
         exit 1
     fi
-    # Run shellcheck on all Bash scripts
-    /usr/bin/find . -iname "*.sh" -type f -exec shellcheck "{}" ';'
+    # .shellcheck-scope is the single source of truth for lint scope; CI reads
+    # the same file into validate-pr's shellcheck-glob input (see #324).
+    mapfile -t sources < <(just shell-sources)
+    if [[ ${#sources[@]} -eq 0 ]]; then
+        echo "No shell scripts matched .shellcheck-scope" >&2
+        exit 1
+    fi
+    printf 'Shellchecking %s scripts:\n' "${#sources[@]}"
+    printf '  %s\n' "${sources[@]}"
+    shellcheck "${sources[@]}"
 
 # Runs shfmt on all Bash scripts
 format:

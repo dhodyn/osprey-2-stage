@@ -98,12 +98,11 @@ monthly test loop, quarterly cleanup, annual Fedora bump).
 - Automatic cleanup of old images (90+ days) to keep it tidy
 - Pull request workflow - test changes before merging to main
   - PRs build and validate before merge
-  - `main` branch builds `:stable-testing` images; `stable` builds `:stable`
+  - `main` builds `:stable-testing`; merging the auto-opened promotion PR to `stable` publishes `:stable`
 - Validates your files on pull requests so you never break a build:
   - Brewfile, Justfile, ShellCheck, Renovate config, and it'll even check to make sure the flatpak you add exists on FlatHub
 - Production Grade Features
   - Container signing with keyless OIDC
-  - See checklist below to enable these as they take some manual configuration
 
 ### Homebrew Integration
 
@@ -149,6 +148,13 @@ Important: Change `finpilot` to your repository name in these 7 files:
 6. `.github/workflows/clean.yml` (`packages`): `packages: your-repo-name`
 7. `iso/iso.toml` (bootc switch URL): `ghcr.io/YOUR_USERNAME/your-repo-name:stable`
 
+Nothing validates that these seven agree with each other, and none of them is
+the name actually published: `build-image.yml` derives `IMAGE_NAME` from
+`github.event.repository.name` and pushes the GHCR package under that value.
+Site 7 in particular is load-bearing at runtime — `just build-iso` bakes it into
+the installer kickstart, so a missed rename pins first boot to a registry ref
+that does not exist. See [issue #291](https://github.com/projectbluefin/finpilot/issues/291).
+
 ### 3. Enable GitHub Actions
 
 - Go to the "Actions" tab in your repository
@@ -156,7 +162,7 @@ Important: Change `finpilot` to your repository name in these 7 files:
 
 Your first build will start automatically!
 
-Note: Images are signed automatically with keyless OIDC signing — no keys or secrets to configure. See "Image Signing" below for verification.
+Note: Images are signed automatically with keyless OIDC signing — no keys or secrets to configure. See "Image Signing" below for details.
 
 ### 4. Enable Renovate (Required)
 
@@ -167,12 +173,10 @@ Renovate automatically updates dependencies and GitHub Actions (including workfl
 1. Go to GitHub → Settings → Developer settings → **Personal access tokens** → **Tokens (classic)**
 2. Click **Generate new token (classic)**
 3. Set a note like `renovate-finpilot`
-4. Select scopes: **`repo`** (full control) and **`workflow`** (update workflows). The `repo` scope also grants Renovate access to repository vulnerability alerts.
+4. Select scopes: **`repo`** (full control) and **`workflow`** (update workflows)
 5. Click **Generate token** and copy the value
 6. Go to your repository → Settings → Secrets and variables → Actions
 7. Add a new secret: **`RENOVATE_TOKEN`** (paste the token value)
-
-Alternatively, a fine-grained token works if it grants **Dependabot alerts: Read-only** and **Contents: Read and write**.
 8. Enable **Settings → General → Pull Requests → Allow auto-merge** so Renovate can merge low-risk updates after checks pass
 9. **Configure branch protection for `main`** (required for automerge to work):
    - Go to Settings → Branches → Add rule
@@ -237,7 +241,7 @@ All changes should be made via pull requests:
    - Brewfile, Flatpak, Justfile, and shellcheck validation
    - Test image build
 3. Once checks pass, merge the PR
-4. Merging to `main` publishes a `:stable-testing` image; merging the auto-opened promotion PR to `stable` publishes `:stable`
+4. Merging to `main` publishes a `:stable-testing` image; the promotion PR it opens publishes `:stable` when merged
 
 ### 8. Promote to Stable
 
@@ -255,6 +259,8 @@ For the automated promotion PR to open, your repository needs:
 - An **organization-owned repo with a `maintainers` team** — the workflow requests review from `<owner>/maintainers` when creating the PR. Personal-account forks can replace `.github/workflows/promote-main-to-stable.yml` with a local version that skips reviewer requests.
 - Branch protection on `stable`: **0 required approvals** means fully automatic promotion; **1 approval** means review, then auto-merge.
 - The release gate is advisory by default — make the promote workflow a required check on `stable` if a `release/blocked` result should block merging.
+
+> **Known release risk:** the release gate currently checks digest and cosign signature only — `run_e2e` is `false` in `promote-main-to-stable.yml` because this repository has no post-build/post-merge E2E workflow or `e2e_image` configured for the shared gate to exercise. Until an E2E workflow is added and `run_e2e: true` (with `e2e_image`/`e2e_suites`) is configured, treat a `release/ready` result as "signed and unmodified," not "functionally validated." See [#281](https://github.com/projectbluefin/finpilot/issues/281).
 
 ### 9. Deploy Your Image
 
@@ -423,9 +429,11 @@ just run-vm-qcow2       # Test in browser-based VM
 
 This template provides security features for production use:
 
-- Keyless OIDC image signing via cosign for cryptographic verification (enabled)
+- Image signing with keyless OIDC cosign for cryptographic verification
 - Automated security updates via Renovate
 - Build provenance tracking
+
+Signing and Renovate run automatically; see the "Love Your Image? Let's Go to Production" section above for optional production hardening like rechunking.
 
 ## Troubleshooting
 
