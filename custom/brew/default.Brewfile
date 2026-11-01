@@ -1,4 +1,5 @@
-# Default Brewfile for osprey-2-stage
+# Default Brewfile
+# Uncomment packages you want to install, or add your own.
 # Users install via: ujust install-default-apps
 
 # CLI tools
