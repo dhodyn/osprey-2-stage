@@ -1,12 +1,26 @@
-# Default Flatpak applications
-# These will be installed on first boot
-# Format: INI file with [Flatpak Preinstall NAME] groups
+# Flatpak applications installed on first boot.
+#
+# Format: an INI file read by `flatpak preinstall`, one section per app:
+#
+#   [Flatpak Preinstall APP_ID]
+#   Branch=stable
+#
+# Comments must start with '#'; the parser is GKeyFile, so a ';' line is a
+# syntax error, and flatpak discards the entire file when one line is malformed.
 # See: https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-preinstall
+#
+# App IDs are listed at https://flathub.org/ and verified by
+# `just validate-flatpaks` before a change can land.
 
-# Apps installed on first boot (after user creation):
-
+# Music streaming. No RPM equivalent.
 [Flatpak Preinstall com.spotify.Client]
 Branch=stable
 
+# Email, calendar and newsgroup client. Fedora ships no mail client by default.
 [Flatpak Preinstall org.mozilla.Thunderbird]
 Branch=stable
+
+# Add another by appending a section, for example:
+#
+# [Flatpak Preinstall io.github.flattool.Warehouse]
+# Branch=stable
